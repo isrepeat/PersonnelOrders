@@ -5,3 +5,4 @@ order_*_paragraphs.txt
 *.tmp
 __pycache__/
 .archive/
+Results/
