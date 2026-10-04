@@ -56,6 +56,7 @@ def nominative_word(word: str, index: int) -> str:
 
 
 def fallback_name(text: str) -> str:
+    text = re.sub(r"(?:рекрута|головного сержанта|штаб-сержанта|майстер-сержанта|капітана(?: медичної служби)?)\s+", "солдата ", text, flags=re.I)
     match = NAME_RE.search(text)
     return " ".join(nominative_word(word, index) for index, word in enumerate(match.groups())) if match else ""
 
@@ -75,6 +76,11 @@ def datetime_date(value: str) -> date:
 
 
 def event_date(text: str, default: date) -> str:
+    text = text.replace("\u00a0", " ")
+    interval = re.search(r"з\s+(\d{1,2})\s+по\s+\d{1,2}\s+([а-яіїєґ]+)\s+(20\d{2})", text, re.I)
+    if interval and interval.group(2).lower() in MONTHS:
+        day, month_word, year = interval.groups()
+        return date(int(year), MONTHS[month_word.lower()], int(day)).strftime("%d.%m.%Y")
     match = re.search(r"з\s+(\d{1,2})\s+([а-яіїєґ]+)(?:\s+(20\d{2}))?", text, re.I)
     if not match or match.group(2).lower() not in MONTHS:
         return default.strftime("%d.%m.%Y")
@@ -152,7 +158,7 @@ def main() -> None:
         # Персоналия начинается со звания; назначения ТВО не являются движением.
         person_text = re.sub(r"^\d+(?:\.\d+)*\.\s*", "", text)
         ipn_match = IPN_RE.search(text)
-        rank_match = re.match(r"(солдата запасу|рядового запасу|майстер-сержанта|головного сержанта|молодшого лейтенанта|старшого солдата|молодшого сержанта|старшого сержанта|старшого лейтенанта|сержанта|лейтенанта|майора|солдата|солдат|матроса)\s", person_text, re.I)
+        rank_match = re.match(r"(солдата запасу|рядового запасу|рядового|штаб-сержанта|рекрута|капітана медичної служби|капітанa|капітана|майстер-сержанта|головного сержанта|молодшого лейтенанта|старшого солдата|молодшого сержанта|старшого сержанта|старшого лейтенанта|сержанта|лейтенанта|майора|солдата|солдат|матроса)\s", person_text, re.I)
         if not rank_match:
             continue
         # Подраздел задаёт направление события и сбрасывает прежний контекст.
@@ -168,11 +174,23 @@ def main() -> None:
                 break
             if not candidate.lower().startswith("виплачувати"):
                 continuation.append(candidate)
-        full_text = " ".join([text, *continuation])
+        full_text = " ".join([text, *continuation]).replace("\u00a0", " ")
         if "зарахувати до списків особового складу" in full_text.lower():
             category = ("Список", "Зарахувати до списку")
-        elif "виключений зі списків особового складу" in text.lower():
+        elif "виключений зі списків особового складу" in full_text.lower() or "виключити зі списків особового складу" in full_text.lower():
             category = ("Список", "Виключити зі списку")
+        elif "з відпустки за сімейними" in context.lower():
+            category = ("Відсутні", "Прибув з відпустки за сімейними обставинами")
+        elif "із самовільного залишення" in context.lower():
+            category = ("Відсутні", "Прибув із СЗЧ")
+        elif "у відпустку за сімейними" in context.lower():
+            category = ("Відсутні", "Вибув у відпустку за сімейними обставинами")
+        elif "зниклими безвісти" in context.lower():
+            category = ("Відсутні", "Безвісти зниклий")
+        elif "не повернувся" in full_text.lower():
+            category = ("Відсутні", "Не повернувся з відпустки" if "щорічної відпустки" in text.lower() else "Не повернувся з лікування")
+        elif "окрім продовольчого" in full_text.lower() and "направити у відрядження" in full_text.lower():
+            category = ("Відсутні", "Вибув у відрядження")
         elif "з лікувального закладу" in context.lower():
             category = ("Відсутні", "Прибув з лікування")
         elif "з відрядження" in context.lower():
@@ -188,7 +206,7 @@ def main() -> None:
         elif "у частину щорічної" in context.lower():
             category = ("Відсутні", "Вибув у щорічну відпустку")
         elif "самовільно залишили" in context.lower():
-            category = ("Відсутні", "Самовільне залишення частини")
+            category = ("Прибули", "Вибув через СЗЧ") if "припинити відрядження" in full_text.lower() else ("Відсутні", "Самовільне залишення частини")
         elif "у відрядження:" in context.lower():
             category = ("Відсутні", "Вибув у відрядження")
         elif "вибули зі складу сил" in context.lower() and "." not in section:
@@ -197,6 +215,8 @@ def main() -> None:
             category = ("Відсутні", "Госпіталізований з відпустки для лікування")
         elif "нижчепойменованих військовослужбовців зарахувати на продовольче забезпечення" in context.lower():
             category = ("Прибули", "Зарахувати на продовольче забезпечення")
+        elif "нижчепойменованих військовослужбовців зняти з продовольчого забезпечення" in context.lower():
+            category = ("Прибули", "Вибув з продовольчого забезпечення")
         else:
             category = None
         if not category:
@@ -215,12 +235,17 @@ def main() -> None:
         row["Текст наказу"] = full_text
         event_source = full_text
         if category[1] == "Виключити зі списку":
-            event_source = re.split(r"вважати таким, що", text, flags=re.I)[-1]
+            exclusion = re.search(r"З\s+\d{1,2}\s+\w+\s+20\d{2}\s+року виключити", full_text, re.I)
+            event_source = exclusion.group(0) if exclusion else re.split(r"вважати таким, що", text, flags=re.I)[-1]
+        if "окрім продовольчого" in full_text.lower():
+            event_source = full_text.split("Направити у відрядження")[-1]
         row["Дата події"] = event_date(event_source, datetime_date(inherited_date))
-        explicit_food = re.search(r"продовольчого забезпечення з\s+([^.]*)", text, re.I)
+        explicit_food = re.search(r"продовольчого забезпечення (?:знятий )?з\s+([^.]*)", full_text, re.I)
         row["Продовольча дата"] = event_date("з " + explicit_food.group(1), order_day) if explicit_food else ""
         if category[1] == "Самовільне залишення частини":
             row["Продовольча дата"] = row["Дата події"]
+        if "окрім продовольчого" in full_text.lower():
+            row["Продовольча дата"] = "НЕ ЗМІНЮВАТИ"
         if not ipn:
             manual = {"МОМОТА": ("МОМОТ Денис Васильович", "майстер-сержант"), "ОСТИМЧУКА": ("ОСТИМЧУК Артем Вікторович", "головний сержант"), "ФІЛІПОВА": ("ФІЛІПОВ Андрій Олександрович", "головний сержант"), "КОВТЮХА": ("КОВТЮХ Олександр Валерійович", "солдат"), "КУЗНЕЦОВА": ("КУЗНЕЦОВ Олександр Юрійович", "сержант"), "ТЕСЛОВА": ("ТЕСЛОВ Максим Миколайович", "старший солдат"), "ІКАВЦЯ": ("ІКАВЕЦЬ Володимир Тарасович", "старший солдат")}
             for surname, values in manual.items():
@@ -229,6 +254,24 @@ def main() -> None:
         if "ТРУФАНОВА" in text and not ipn:
             row["ПІБ"], row["Звання"] = "ТРУФАНОВ Сергій Олександрович", "майор"
         row["Звання"] = shpo_ranks.get(ipn, row["Звання"] or rank_match.group(1).replace("лейтенанта", "лейтенант").replace("молодшого", "молодший").replace("майстер-сержанта", "майстер-сержант"))
+        # Ручная сверка форм, отсутствующих в справочнике; ключ — полный исходный ПІБ.
+        verified_names = {
+            "КРАВЦЯ Олега Юрійовича": "КРАВЕЦЬ Олег Юрійович",
+            "ПЛУГАТИРЬОВА Павла Вікторовича": "ПЛУГАТИРЬОВ Павло Вікторович",
+            "ПОЛТАВЦЯ Володимира Віталійовича": "ПОЛТАВЕЦЬ Володимир Віталійович",
+            "ГАРБУЗА Сергія Олександровича": "ГАРБУЗ Сергій Олександрович",
+            "ШЕРЕМЕТА Ігоря Ігоровича": "ШЕРЕМЕТ Ігор Ігорович",
+            "ПІДГІРНЯКА Романа Андрійовича": "ПІДГІРНЯК Роман Андрійович",
+            "СВЄТЛАКОВА Вадима Володимировича": "СВЄТЛАКОВ Вадим Володимирович",
+            "ЛЕБЕДЄВА Михайла Миколайовича": "ЛЕБЕДЄВ Михайло Миколайович",
+            "МАРКИТАНА Бориса Петровича": "МАРКИТАН Борис Петрович",
+        }
+        if ipn not in alf:
+            for original, nominative in verified_names.items():
+                if original in text:
+                    row["ПІБ"] = nominative
+        if ipn not in shpo_ranks:
+            row["Звання"] = {"рекрута": "рекрут", "головного сержанта": "головний сержант", "штаб-сержанта": "штаб-сержант"}.get(rank_match.group(1).lower(), row["Звання"])
         if category == ("Список", "Зарахувати до списку") and "тимчасово прибулого особового складу" in text.lower():
             close = row.copy()
             close["Лист"], close["Дія"], close["Деталі"] = "Прибули", "Закрити ТП", "Зараховано до списків особового складу"
