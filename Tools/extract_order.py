@@ -32,14 +32,17 @@ def text_id(value: object) -> str:
     return str(value).split(".")[0]
 
 
-def load_shpo() -> tuple[dict[str, str], dict[str, str]]:
+def load_shpo() -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
     book = load_workbook(SHPO_PATH, read_only=True, data_only=True)
     alf = {text_id(row[0]): str(row[1]) for row in book["АЛФ"].iter_rows(min_row=2, values_only=True) if row[0] and row[1]}
     sheet = book["ОС"]
     headers = next(sheet.iter_rows(min_row=1, max_row=1, values_only=True))
     ipn_column, rank_column = headers.index("ІПН"), headers.index("Військове звання фактично")
     ranks = {text_id(row[ipn_column]): str(row[rank_column]) for row in sheet.iter_rows(min_row=2, values_only=True) if row[ipn_column] and row[rank_column]}
-    return alf, ranks
+    position_column = headers.index("Код посади")
+    positions = {text_id(row[ipn_column]): str(row[position_column]) for row in sheet.iter_rows(min_row=2, values_only=True) if row[ipn_column] and row[position_column]}
+    book.close()
+    return alf, ranks, positions
 
 
 def nominative_word(word: str, index: int) -> str:
@@ -108,6 +111,43 @@ def departure_details(text: str) -> tuple[str, str]:
     return term.group(1) if term else "", road.group(1) if road else ""
 
 
+def destination(text: str) -> str:
+    """Отделяет направление движения от срока, даты и цели поездки."""
+    text = re.sub(r"\s+", " ", text.replace("\u00a0", " ")).strip()
+    personal = re.search(r"(?:направити у відрядження|госпіталізований|вибув у відпустку для лікування)\s+(?:у|в)\s+(.+)", text, re.I)
+    if not personal:
+        personal = re.search(r",\s+(?:у|в)\s+(.+)", text, re.I)
+    if not personal:
+        personal = re.search(r",\s+((?:м|с|смт)\.\s+.+)", text, re.I)
+    if personal:
+        text = personal.group(1)
+    elif re.match(r"^(?:у|в|з|із|до)\s+(?!\d|відрядження|відпустки|лікувального закладу)", text, re.I):
+        text = re.sub(r"^(?:у|в|з|із|до)\s+", "", text, flags=re.I)
+    else:
+        return ""
+    text = re.split(r",?\s*(?:терміном|без урахування|з метою|до окремого розпорядження|з\s+\d{1,2}\s+[а-яіїєґ]+\s+20\d{2})|\.\s+(?:Видати|Поновити|Направити)", text, maxsplit=1, flags=re.I)[0].strip(" ,:.")
+    unit = re.match(r"військов(?:у|ої)\s+частин[уи]\s+([АA]?\d{4})\b", text, re.I)
+    return unit.group(1) if unit else text
+
+
+def absence_type(action: str) -> str:
+    """Возвращает тип отсутствия, а не служебное действие открытия/закрытия."""
+    mapping = {
+        "Прибув з відрядження": "Відрядження", "Вибув у відрядження": "Відрядження",
+        "Прибув з лікування": "Стаціонарне лікування", "Вибув на лікування": "Стаціонарне лікування",
+        "Госпіталізований з відпустки для лікування": "Стаціонарне лікування",
+        "Прибув зі щорічної відпустки": "Щорічна відпустка", "Вибув у щорічну відпустку": "Щорічна відпустка",
+        "Прибув з відпустки за сімейними обставинами": "Відпустка за сімейними обставинами",
+        "Вибув у відпустку за сімейними обставинами": "Відпустка за сімейними обставинами",
+        "Вибув у відпустку для лікування": "Відпустка для лікування",
+        "Прибув із СЗЧ": "Самовільне залишення частини", "Закрити СЗЧ": "Самовільне залишення частини",
+        "Самовільне залишення частини": "Самовільне залишення частини",
+        "Не повернувся з відпустки": "Самовільне залишення частини", "Не повернувся з лікування": "Самовільне залишення частини",
+        "Безвісти зниклий": "Безвісти зниклий", "Повернення до іншої частини": "Повернення до іншої частини",
+    }
+    return mapping.get(action, "")
+
+
 def exclusion_absences(row: dict[str, str]) -> list[dict[str, str]]:
     """Закрывает СЗЧ и выделяет период после возвращения в другую часть."""
     if row["Лист"] != "Список" or row["Дія"] != "Виключити зі списку":
@@ -136,6 +176,7 @@ def exclusion_absences(row: dict[str, str]) -> list[dict[str, str]]:
         "Вибуття": return_day, "Вибуття.Продовольче": closing_day,
         "Прибуття": closing_day, "Прибуття.Продовольче": closing_day,
         "Деталі": f"Повернення до {returned.group(2)}; виключення {row['Дата події']}",
+        "Куди": returned.group(2),
     })
     return [closed, bridge]
 
@@ -171,11 +212,16 @@ def main() -> None:
     paragraphs = [paragraph for paragraph in paragraphs if paragraph]
     number, order_day = parse_order_info(paragraphs)
     output_path = args.output or ROOT / f"events_{number}.csv"
-    alf, shpo_ranks = load_shpo()
+    alf, shpo_ranks, positions = load_shpo()
+    name_ids: dict[str, list[str]] = {}
+    for person_ipn, name in alf.items():
+        name_ids.setdefault(name, []).append(person_ipn)
+    position_names = {name: positions[ids[0]] for name, ids in name_ids.items() if len(ids) == 1 and ids[0] in positions}
     rows: list[dict[str, str]] = []
     context = ""
     section = ""
     inherited_date = order_day.strftime("%d.%m.%Y")
+    inherited_destination = ""
 
     for index, text in enumerate(paragraphs):
         # Заголовки разделов сохраняются до следующего заголовка и задают контекст для персоналий.
@@ -185,6 +231,7 @@ def main() -> None:
             section = heading.group(1)
             context = text
             inherited_date = order_day.strftime("%d.%m.%Y")
+            inherited_destination = ""
         if not text.lower().startswith("підстава:") and not IPN_RE.search(text):
             inherited_date = event_date(text, datetime_date(inherited_date))
         # Персоналия начинается со звания; назначения ТВО не являются движением.
@@ -192,6 +239,10 @@ def main() -> None:
         ipn_match = IPN_RE.search(text)
         rank_match = re.match(r"(солдата запасу|рядового запасу|рядового|штаб-сержанта|рекрута|капітана медичної служби|капітанa|капітана|майстер-сержанта|головного сержанта|молодшого лейтенанта|старшого солдата|молодшого сержанта|старшого сержанта|старшого лейтенанта|сержанта|лейтенанта|майора|солдата|солдат|матроса)\s", person_text, re.I)
         if not rank_match:
+            if not text.lower().startswith("підстава:") and not heading:
+                location = destination(text)
+                if location:
+                    inherited_destination = location
             continue
         # Подраздел задаёт направление события и сбрасывает прежний контекст.
         # Проверяем продолжение пункта: зачисление бывает отдельным абзацем.
@@ -265,6 +316,7 @@ def main() -> None:
         row = {"Лист": category[0], "Дія": category[1], "Звання": shpo_ranks.get(ipn, RANKS.get(rank_match.group(1).lower(), "")), "ПІБ": alf.get(ipn, fallback_name(text)), "ІПН": ipn, "Дата події": event_date(text, order_day), "Наказ": f"№{number} від {order_day.strftime('%d.%m.%Y')}", "Деталі": "", "Текст наказу": text, "Підстава": basis, "Супровідний документ": companion, "Термін": departure_details(text)[0], "Дорога": departure_details(text)[1]}
         rows.append(row)
         row["Текст наказу"] = full_text
+        row["Куди"] = (destination(full_text) or inherited_destination) if category[0] == "Відсутні" else ""
         event_source = full_text
         if category[1] == "Виключити зі списку":
             exclusion = re.search(r"З\s+\d{1,2}\s+\w+\s+20\d{2}\s+року виключити", full_text, re.I)
@@ -304,6 +356,7 @@ def main() -> None:
                     row["ПІБ"] = nominative
         if ipn not in shpo_ranks:
             row["Звання"] = {"рекрута": "рекрут", "головного сержанта": "головний сержант", "штаб-сержанта": "штаб-сержант"}.get(rank_match.group(1).lower(), row["Звання"])
+        row["Посада"] = positions.get(ipn, "") if ipn else position_names.get(row["ПІБ"], "")
         if category == ("Список", "Зарахувати до списку") and "тимчасово прибулого особового складу" in text.lower():
             close = row.copy()
             close["Лист"], close["Дія"], close["Деталі"] = "Прибули", "Закрити ТП", "Зараховано до списків особового складу"
@@ -311,7 +364,10 @@ def main() -> None:
 
     # Специальные закрытия добавляются после извлечения исходных событий.
     rows.extend(extra for row in list(rows) for extra in exclusion_absences(row))
-    fields = ["Лист", "Дія", "Звання", "ПІБ", "ІПН", "Дата події", "Наказ", "Деталі", "Текст наказу", "Підстава", "Супровідний документ", "Термін", "Дорога", "Продовольча дата", "Вибуття", "Вибуття.Продовольче", "Прибуття", "Прибуття.Продовольче"]
+    for row in rows:
+        row["Подія"] = absence_type(row["Дія"]) if row["Лист"] == "Відсутні" else ""
+        row["За межі"] = ""
+    fields = ["Лист", "Дія", "Звання", "ПІБ", "ІПН", "Дата події", "Наказ", "Деталі", "Текст наказу", "Підстава", "Супровідний документ", "Термін", "Дорога", "Продовольча дата", "Вибуття", "Вибуття.Продовольче", "Прибуття", "Прибуття.Продовольче", "Посада", "Подія", "Куди", "За межі"]
     with output_path.open("w", newline="", encoding="utf-8-sig") as file:
         writer = csv.DictWriter(file, fieldnames=fields)
         writer.writeheader()
