@@ -1,7 +1,7 @@
 """Универсальное извлечение кандидатов событий из строевого приказа.
 
 Пример:
-  python extract_order.py "2026\\2026-09-27 №280 (Черкашин).docx"
+  python Tools/extract_order.py "2026\\2026-09-27 №280 (Черкашин).docx"
 """
 
 from __future__ import annotations
@@ -16,8 +16,8 @@ from docx import Document
 from openpyxl import load_workbook
 
 
-ROOT = Path(r"C:\WORK\Windows\Строевые приказы")
-SHPO_PATH = ROOT / "ШПО.xlsx"
+ROOT = Path(__file__).resolve().parent.parent
+SHPO_PATH = ROOT / "Tools" / "ШПО.xlsx"
 IPN_RE = re.compile(r"\b(\d{10})\b")
 RANK_RE = re.compile(r"(?:^|\.\s*)(солдата запасу|рядового|солдата|солдат|матроса|старшого солдата|молодшого сержанта|старшого сержанта|сержанта|старшого лейтенанта|лейтенанта|майора)\s+", re.I)
 NAME_RE = re.compile(r"(?:солдата запасу|рядового|солдата|солдат|матроса|старшого солдата|молодшого сержанта|старшого сержанта|сержанта|старшого лейтенанта|лейтенанта|майора)\s+([А-ЯІЇЄҐ'’-]+)\s+([А-ЯІЇЄҐ][а-яіїєґ'’-]+)\s+([А-ЯІЇЄҐ][а-яіїєґ'’-]+)", re.I)

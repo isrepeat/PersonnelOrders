@@ -5,7 +5,8 @@ order_*_paragraphs.txt
 *.tmp
 __pycache__/
 .archive/
-Results/
+Results/*
+!Results/.gitkeep
 *.[dD][oO][cC][xX]
 *.[xX][lL][sS][xX]
 *.[zZ][iI][pP]
