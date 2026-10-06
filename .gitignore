@@ -6,3 +6,7 @@ order_*_paragraphs.txt
 __pycache__/
 .archive/
 Results/
+*.[dD][oO][cC][xX]
+*.[xX][lL][sS][xX]
+*.[zZ][iI][pP]
+!Накази.xlsx

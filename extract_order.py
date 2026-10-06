@@ -108,6 +108,38 @@ def departure_details(text: str) -> tuple[str, str]:
     return term.group(1) if term else "", road.group(1) if road else ""
 
 
+def exclusion_absences(row: dict[str, str]) -> list[dict[str, str]]:
+    """Закрывает СЗЧ и выделяет период после возвращения в другую часть."""
+    if row["Лист"] != "Список" or row["Дія"] != "Виключити зі списку":
+        return []
+    text = row["Текст наказу"]
+    returned = re.search(
+        r"який\s+(\d{1,2}\s+[а-яіїєґ]+\s+20\d{2})\s+року\s+повернувся\s+до\s+військової\s+частини\s+([АA]\d{4})",
+        text, re.I,
+    )
+    if not returned or "після самовільного залишення" not in text.lower():
+        return []
+    exclusion_day = datetime_date(row["Дата події"])
+    return_day = event_date("з " + returned.group(1), exclusion_day)
+    closing_day = (exclusion_day + timedelta(days=1)).strftime("%d.%m.%Y")
+    closed = row.copy()
+    closed.update({
+        "Лист": "Відсутні", "Дія": "Закрити СЗЧ", "Дата події": return_day,
+        "Продовольча дата": closing_day, "Прибуття": return_day,
+        "Прибуття.Продовольче": closing_day,
+        "Деталі": f"Закрити попереднє СЗЧ; повернення до {returned.group(2)}",
+    })
+    bridge = row.copy()
+    bridge.update({
+        "Лист": "Відсутні", "Дія": "Повернення до іншої частини",
+        "Дата події": return_day, "Продовольча дата": closing_day,
+        "Вибуття": return_day, "Вибуття.Продовольче": closing_day,
+        "Прибуття": closing_day, "Прибуття.Продовольче": closing_day,
+        "Деталі": f"Повернення до {returned.group(2)}; виключення {row['Дата події']}",
+    })
+    return [closed, bridge]
+
+
 def classify(text: str, context: str) -> tuple[str, str] | None:
     combined = f"{context} {text}".lower()
     if "зарахувати до списків особового складу" in text.lower():
@@ -277,7 +309,9 @@ def main() -> None:
             close["Лист"], close["Дія"], close["Деталі"] = "Прибули", "Закрити ТП", "Зараховано до списків особового складу"
             rows.append(close)
 
-    fields = ["Лист", "Дія", "Звання", "ПІБ", "ІПН", "Дата події", "Наказ", "Деталі", "Текст наказу", "Підстава", "Супровідний документ", "Термін", "Дорога", "Продовольча дата"]
+    # Специальные закрытия добавляются после извлечения исходных событий.
+    rows.extend(extra for row in list(rows) for extra in exclusion_absences(row))
+    fields = ["Лист", "Дія", "Звання", "ПІБ", "ІПН", "Дата події", "Наказ", "Деталі", "Текст наказу", "Підстава", "Супровідний документ", "Термін", "Дорога", "Продовольча дата", "Вибуття", "Вибуття.Продовольче", "Прибуття", "Прибуття.Продовольче"]
     with output_path.open("w", newline="", encoding="utf-8-sig") as file:
         writer = csv.DictWriter(file, fieldnames=fields)
         writer.writeheader()
