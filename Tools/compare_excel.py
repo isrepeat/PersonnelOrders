@@ -136,7 +136,8 @@ def generate(args):
                 addr = f'{get_column_letter(c + 1)}{(after or before)[0]}'
                 history = f'<div class="previous"><span>Было · {get_column_letter(c + 1)}{before[0]}</span>{content(x)}</div>' if status == 'replacement' else ''
                 current = '<pre>-- // --</pre>' if unchanged else content(y or x)
-                lines.append(f'<div class="cell {status}"><div class="cell-heading"><b>{escape(labels[c])}</b><span>{addr}</span></div><span class="cell-tag">{cell_tag}</span>{history}<div class="current">{current}</div></div>')
+                original_content = f'<template class="original-value">{content(y or x) if y or x else "<pre>Пустая ячейка</pre>"}</template>' if unchanged else ''
+                lines.append(f'<div class="cell {status}"><div class="cell-heading"><b>{escape(labels[c])}</b><span>{addr}</span></div><span class="cell-tag">{cell_tag}</span>{history}<div class="current">{current}</div>{original_content}</div>')
             context = []
             for c, label in enumerate(labels):
                 if label == 'Подія' and row[c]:
@@ -162,7 +163,9 @@ function openCell(cell){
  dialog.querySelector('.dialog-context').textContent=article.querySelector('header').textContent+' · '+article.closest('section').querySelector('h2').textContent;
  const body=dialog.querySelector('.dialog-body');
  body.replaceChildren();
- for(const child of cell.children)body.append(child.cloneNode(true));
+ for(const child of cell.children){if(child.tagName!=='TEMPLATE')body.append(child.cloneNode(true));}
+ const original=cell.querySelector('template.original-value');
+ if(original)body.querySelector('.current').replaceChildren(original.content.cloneNode(true));
  for(const detail of body.querySelectorAll('details'))detail.open=true;
  dialog.showModal();
 }
