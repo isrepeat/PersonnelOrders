@@ -32,6 +32,15 @@ def text_id(value: object) -> str:
     return str(value).split(".")[0]
 
 
+def position_label(value: object) -> str:
+    """Заменяет специальные коды посады условными обозначениями учёта."""
+    code = str(value) if value is not None else ""
+    for prefix, label in (("A1A", "РОЗП"), ("A1B", "СПИС"), ("A1C", "ТП")):
+        if code.startswith(prefix):
+            return label
+    return code
+
+
 def load_shpo() -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
     book = load_workbook(SHPO_PATH, read_only=True, data_only=True)
     alf = {text_id(row[0]): str(row[1]) for row in book["АЛФ"].iter_rows(min_row=2, values_only=True) if row[0] and row[1]}
@@ -40,7 +49,7 @@ def load_shpo() -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
     ipn_column, rank_column = headers.index("ІПН"), headers.index("Військове звання фактично")
     ranks = {text_id(row[ipn_column]): str(row[rank_column]) for row in sheet.iter_rows(min_row=2, values_only=True) if row[ipn_column] and row[rank_column]}
     position_column = headers.index("Код посади")
-    positions = {text_id(row[ipn_column]): str(row[position_column]) for row in sheet.iter_rows(min_row=2, values_only=True) if row[ipn_column] and row[position_column]}
+    positions = {text_id(row[ipn_column]): position_label(row[position_column]) for row in sheet.iter_rows(min_row=2, values_only=True) if row[ipn_column] and row[position_column]}
     book.close()
     return alf, ranks, positions
 
