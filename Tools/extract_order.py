@@ -54,6 +54,61 @@ def load_shpo() -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
     return alf, ranks, positions
 
 
+def acting_replacement(text: str, alf: dict[str, str], positions: dict[str, str]) -> tuple[dict[str, str], str]:
+    """Извлекает назначенного ТВО; сопоставляет все три компонента ПІБ, не одну фамилию."""
+    result = {key: "" for key in ("ТВО.ПІБ", "ТВО.ІПН", "ТВО.Посада")}
+    assignments = list(re.finditer(
+        r"(?i:тимчасов[ео]\s+виконання\s+обов[’']?язків)[^.!?]*?"
+        r"(?i:покласти\s+на)\s+[^.;]{0,80}?"
+        r"([А-ЯІЇЄҐ][А-ЯІЇЄҐ’'-]+)\s+([А-ЯІЇЄҐ][а-яіїєґ’'-]+)\s+([А-ЯІЇЄҐ][а-яіїєґ’'-]+)",
+        text.replace("\u00a0", " "),
+    ))
+    if not assignments:
+        return result, ""
+    if len(assignments) != 1:
+        return result, "ТВО: несколько назначений в одном пункте, требуется сверка"
+    assignment = assignments[0]
+    original = assignment.groups()
+
+    def forms(word: str, index: int) -> set[str]:
+        word = word.casefold().replace("’", "'")
+        variants = {word, word + "а", word + "у", word + "я", word + "ю"}
+        if word.endswith("й"):
+            variants.update({word[:-1] + "я", word[:-1] + "ю"})
+        if index == 0 and word.endswith(("ий", "ій")):
+            variants.update({word[:-2] + "ого", word[:-2] + "ього"})
+        if word.endswith("о"):
+            variants.update({word[:-1] + "а", word[:-1] + "у"})
+        if word.endswith("а"):
+            variants.update({word[:-1] + "и", word[:-1] + "і"})
+        if word.endswith("ь"):
+            variants.update({word[:-1] + "я", word[:-1] + "ю"})
+        if index == 1:
+            irregular = {"павло": "павла", "лев": "лева", "ігор": "ігоря"}
+            if word in irregular:
+                variants.add(irregular[word])
+        return variants
+
+    explicit = re.match(r"\s*,?\s*(?:ІПН\s*[:–-]?\s*)?(\d{10})\b", text[assignment.end():], re.I)
+    if explicit:
+        ipn = explicit.group(1)
+        matches = [ipn] if ipn in alf else []
+    else:
+        matches = []
+        for ipn, name in alf.items():
+            parts = name.split()
+            if len(parts) == 3 and all(
+                actual.casefold().replace("’", "'") in forms(expected, index)
+                for index, (actual, expected) in enumerate(zip(original, parts))
+            ):
+                matches.append(ipn)
+    if len(matches) != 1:
+        return result, f"ТВО: не найдено однозначное соответствие ШПО для {' '.join(original)}"
+    ipn = matches[0]
+    result.update({"ТВО.ПІБ": alf[ipn], "ТВО.ІПН": ipn, "ТВО.Посада": position_label(positions.get(ipn, ""))})
+    return result, "" if result["ТВО.Посада"] else f"ТВО: в ШПО отсутствует код посады для {alf[ipn]}"
+
+
 def nominative_word(word: str, index: int) -> str:
     lower = word.lower()
     if index == 0 and lower.endswith("енка"):
@@ -155,6 +210,42 @@ def absence_type(action: str) -> str:
         "Безвісти зниклий": "Безвісти зниклий", "Повернення до іншої частини": "Повернення до іншої частини",
     }
     return mapping.get(action, "")
+
+
+def return_before_departure(row: dict[str, str]) -> list[dict[str, str]]:
+    """Закрывает СЗЧ фактическим возвратом и выделяет промежуток до командировки."""
+    if row["Лист"] != "Відсутні" or row["Дія"] != "Вибув у відрядження":
+        return []
+    text = row["Текст наказу"]
+    if not re.search(r"самовільн\w*\s+залиш", text, re.I):
+        return []
+    date_pattern = r"(\d{1,2}\s+[а-яіїєґ]+\s+20\d{2})\s+року"
+    returned = re.search(date_pattern + r"\s+повернувся\s+до\s+військової\s+частини\s+([АA]\d{4})", text, re.I)
+    sent = re.search(r"направити\s+(?:у|в)\s+відрядження\s+(?:у|в)\s+військову\s+частину\s+([АA]\d{4})\s+з\s+" + date_pattern, text, re.I)
+    if not returned or not sent:
+        return []
+    order_day = datetime_date(re.search(r"\d{2}\.\d{2}\.\d{4}", row["Наказ"]).group(0))
+    return_day = event_date("з " + returned.group(1), order_day)
+    departure_day = event_date("з " + sent.group(2), order_day)
+    if datetime_date(return_day) > datetime_date(departure_day):
+        row["Деталі"] = "Проверить: дата возвращения после даты направления в командировку"
+        return []
+    row.update({"Дата події": departure_day, "Куди": sent.group(1).replace("A", "А")})
+    closed = row.copy()
+    closed.update({"Дія": "Закрити СЗЧ", "Дата події": return_day, "Прибуття": return_day,
+                   "Куди": "", "Термін": "", "Дорога": "", "Супровідний документ": ""})
+    for key in ("ТВО.ПІБ", "ТВО.ІПН", "ТВО.Посада"):
+        closed[key] = ""
+    if return_day == departure_day:
+        return [closed]
+    bridge = closed.copy()
+    bridge.update({"Дія": "Повернення до іншої частини", "Куди": returned.group(2).replace("A", "А"),
+                   "Вибуття": return_day, "Прибуття": departure_day})
+    if row.get("Продовольча дата") != "НЕ ЗМІНЮВАТИ":
+        closed["Продовольча дата"] = row.get("Продовольча дата") or max(datetime_date(return_day), order_day + timedelta(days=1)).strftime("%d.%m.%Y")
+        bridge["Вибуття.Продовольче"] = closed["Продовольча дата"]
+        bridge["Прибуття.Продовольче"] = row.get("Продовольча дата") or max(datetime_date(departure_day), order_day + timedelta(days=1)).strftime("%d.%m.%Y")
+    return [closed, bridge]
 
 
 def exclusion_absences(row: dict[str, str]) -> list[dict[str, str]]:
@@ -325,6 +416,11 @@ def main() -> None:
         row = {"Лист": category[0], "Дія": category[1], "Звання": shpo_ranks.get(ipn, RANKS.get(rank_match.group(1).lower(), "")), "ПІБ": alf.get(ipn, fallback_name(text)), "ІПН": ipn, "Дата події": event_date(text, order_day), "Наказ": f"№{number} від {order_day.strftime('%d.%m.%Y')}", "Деталі": "", "Текст наказу": text, "Підстава": basis, "Супровідний документ": companion, "Термін": departure_details(text)[0], "Дорога": departure_details(text)[1]}
         rows.append(row)
         row["Текст наказу"] = full_text
+        # ТВО назначается при выбытии; возвращение прежнего исполнителя не является новым назначением.
+        tvo, tvo_warning = acting_replacement(full_text, alf, positions) if category[0] == "Відсутні" and category[1].startswith("Вибув") else ({key: "" for key in ("ТВО.ПІБ", "ТВО.ІПН", "ТВО.Посада")}, "")
+        row.update(tvo)
+        if tvo_warning:
+            row["Деталі"] = tvo_warning
         row["Куди"] = (destination(full_text) or inherited_destination) if category[0] == "Відсутні" else ""
         event_source = full_text
         if category[1] == "Виключити зі списку":
@@ -372,11 +468,17 @@ def main() -> None:
             rows.append(close)
 
     # Специальные закрытия добавляются после извлечения исходных событий.
-    rows.extend(extra for row in list(rows) for extra in exclusion_absences(row))
+    expanded = []
+    for row in rows:
+        # Последовательность: закрытие СЗЧ, промежуточное возвращение, новая командировка.
+        expanded.extend(return_before_departure(row))
+        expanded.append(row)
+        expanded.extend(exclusion_absences(row))
+    rows = expanded
     for row in rows:
         row["Подія"] = absence_type(row["Дія"]) if row["Лист"] == "Відсутні" else ""
         row["За межі"] = ""
-    fields = ["Лист", "Дія", "Звання", "ПІБ", "ІПН", "Дата події", "Наказ", "Деталі", "Текст наказу", "Підстава", "Супровідний документ", "Термін", "Дорога", "Продовольча дата", "Вибуття", "Вибуття.Продовольче", "Прибуття", "Прибуття.Продовольче", "Посада", "Подія", "Куди", "За межі"]
+    fields = ["Лист", "Дія", "Звання", "ПІБ", "ІПН", "Дата події", "Наказ", "Деталі", "Текст наказу", "Підстава", "Супровідний документ", "Термін", "Дорога", "Продовольча дата", "Вибуття", "Вибуття.Продовольче", "Прибуття", "Прибуття.Продовольче", "Посада", "Подія", "Куди", "За межі", "ТВО.ПІБ", "ТВО.ІПН", "ТВО.Посада"]
     with output_path.open("w", newline="", encoding="utf-8-sig") as file:
         writer = csv.DictWriter(file, fieldnames=fields)
         writer.writeheader()

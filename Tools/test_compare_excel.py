@@ -63,6 +63,19 @@ class CompareExcelTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'Изменены заголовки'):
             self.generate([(1, ('ПІБ', 'Код'))], [(1, ('ПІБ', 'Дата'))])
 
+    def test_food_and_dry_rations_are_available_without_other_tabs(self):
+        args = SimpleNamespace(old=Path('old.xlsx'), new=Path('new.xlsx'), key='ПІБ', threshold=0.65)
+        header = (2, ('Звання', 'ПІБ', 'Початок', 'Тривалість', 'Припинення'))
+        old = {'Продовольче': [header], 'Сухпрод': [header]}
+        new = {'Продовольче': [header], 'Сухпрод': [header, (3, ('солдат', 'Анна', '06.10.2026', '3', '09.10.2026'))]}
+        with patch.object(compare_excel, 'read', side_effect=[old, new]):
+            report, totals = compare_excel.generate(args)
+        self.assertEqual(totals['add'], 1)
+        self.assertIn("['Продовольче','Продовольче']", report)
+        self.assertIn("['Сухпрод','Сухпрод']", report)
+        self.assertIn('06.10.2026', report)
+        self.assertIn("button.textContent===pageNames[index][1]", report)
+
     def test_equal_candidates_are_flagged(self):
         header = (1, ('ПІБ', 'Код', 'Дата', 'Примітка'))
         report, totals = self.generate(

@@ -4,6 +4,8 @@ order_*_paragraphs.txt
 *.inspect.ndjson
 *.diff.html
 *.tmp
+*.jpg
+*.jpeg
 __pycache__/
 .archive/
 !Results/.gitkeep
