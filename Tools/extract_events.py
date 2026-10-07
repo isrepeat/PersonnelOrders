@@ -4,7 +4,7 @@ import csv
 import re
 
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
-ROOT = REPOSITORY_ROOT / "2026"
+ROOT = REPOSITORY_ROOT / "Documents" / "Orders" / "А7383" / "2026"
 OUTPUT = REPOSITORY_ROOT / "events_212_277.csv"
 MONTHS = {"січня": "01", "лютого": "02", "березня": "03", "квітня": "04", "травня": "05", "червня": "06", "липня": "07", "серпня": "08", "вересня": "09", "жовтня": "10", "листопада": "11", "грудня": "12"}
 ORDER_RE = re.compile(r"№\s*(\d+)")

@@ -1,7 +1,7 @@
 """Универсальное извлечение кандидатов событий из строевого приказа.
 
 Пример:
-  python Tools/extract_order.py "2026\\2026-09-27 №280 (Черкашин).docx"
+  python Tools/extract_order.py "Documents/Orders/А7383/2026/2026-09-27 №280 (Черкашин).docx"
 """
 
 from __future__ import annotations
