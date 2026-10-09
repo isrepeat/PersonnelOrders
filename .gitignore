@@ -3,6 +3,7 @@ __pycache__/
 
 *.tmp
 *.jpg
+*.png
 *.jpeg
 *.diff.html
 *.inspect.ndjson
@@ -15,6 +16,7 @@ order_*_paragraphs.txt
 
 /Documents/Orders/**/*
 !/Documents/Orders/**/
+!/Documents/Templates/**/*
 
 outputs/
 node_modules/

@@ -112,7 +112,7 @@ for (const name of order) {
       }
       if (dateHeaders.has(header) && /^\d{2}\.\d{2}\.\d{4}$/.test(row[index] ?? "")) {
         const [day, month, year] = row[index].split(".").map(Number);
-        row[index] = new Date(Date.UTC(year, month - 1, day));
+        row[index] = (Date.UTC(year, month - 1, day) - Date.UTC(1899, 11, 30)) / 86400000;
       }
     });
   }
@@ -262,7 +262,7 @@ if (payload) {
     const foodValues = payload.food.map(row => row.map((value, index) => {
       if ((index === 2 || index === 3) && /^\d{2}\.\d{2}\.\d{4}$/.test(value ?? "")) {
         const [day, month, year] = value.split(".").map(Number);
-        return new Date(Date.UTC(year, month - 1, day));
+        return (Date.UTC(year, month - 1, day) - Date.UTC(1899, 11, 30)) / 86400000;
       }
       return value;
     }));
