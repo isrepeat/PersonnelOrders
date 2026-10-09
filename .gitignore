@@ -20,6 +20,7 @@ order_*_paragraphs.txt
 
 outputs/
 node_modules/
+/Tasks/*/Work/
 
 !.gitkeep
 !Накази.xlsx
