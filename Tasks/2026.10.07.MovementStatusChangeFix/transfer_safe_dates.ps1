@@ -1,8 +1,8 @@
-param([string]$Levels = '1')
+param([string]$Levels = '1', [string]$Review = 'Анализ смен статусов v29.xlsx', [switch]$SkipComparison)
 $ErrorActionPreference = 'Stop'
 $env:PYTHONIOENCODING = 'utf-8'
 $python = 'C:/Users/isrepeat/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe'
-$plan = (& $python -W ignore (Join-Path $PSScriptRoot 'prepare_safe_transfer.py') $Levels) | ConvertFrom-Json
+$plan = (& $python -W ignore (Join-Path $PSScriptRoot 'prepare_safe_transfer.py') $Levels $Review) | ConvertFrom-Json
 if ($LASTEXITCODE -ne 0 -or $plan.conflicts.Count) { throw 'Есть несопоставленные исходные строки; перенос остановлен' }
 $sourcePath = 'C:/Users/isrepeat/OneDrive/Рабочий стол/РУХ_last.xlsx'
 $baselinePath = 'C:/Users/isrepeat/OneDrive/Рабочий стол/РУХ_2026.10.08.xlsx'
@@ -44,7 +44,9 @@ try {
     $excel.Quit()
     [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($excel)
 }
-$report = Join-Path (Get-Location) ('Results/ExcelComparing/РУХ_last.status_levels_' + $Levels.Replace(',', '_') + '_vs_РУХ_2026.10.08.diff.html')
-& $python 'Tools/compare_excel.py' $baselinePath $sourcePath -o $report
-if ($LASTEXITCODE -ne 0) { throw 'Не удалось создать отчёт сравнения' }
-Write-Output ('Отчёт: ' + $report)
+if (-not $SkipComparison) {
+    $report = Join-Path (Get-Location) ('Results/ExcelComparing/РУХ_last.status_levels_' + $Levels.Replace(',', '_') + '_vs_РУХ_2026.10.08.diff.html')
+    & $python 'Tools/compare_excel.py' $baselinePath $sourcePath -o $report
+    if ($LASTEXITCODE -ne 0) { throw 'Не удалось создать отчёт сравнения' }
+    Write-Output ('Отчёт: ' + $report)
+}

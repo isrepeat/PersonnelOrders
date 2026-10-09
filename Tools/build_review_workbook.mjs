@@ -91,7 +91,7 @@ for (const name of order) {
     }
     const arrival = record["Дія"].startsWith("Прибув") || record["Дія"].startsWith("Поновити") || record["Дія"].includes("Закрити");
     const orderNumber = orderNumberText;
-    if (record["Дія"] === "Повернення до іншої частини") {
+    if (record["Дія"].split(" | ").includes("Повернення до іншої частини")) {
       return [record["Дія"], rank, record["ПІБ"], record["ІПН"], orderNumber, record["Вибуття.Продовольче"], record["Вибуття"], "", "", "", record["Прибуття"], record["Прибуття.Продовольче"], orderNumber, record["Підстава"], record["Супровідний документ"], record["Підстава"], record["Текст наказу"]];
     }
     return [record["Дія"], rank, record["ПІБ"], record["ІПН"], ...(arrival ? ["", "", "", "", "", "", date, foodDate, orderNumber, "", record["Супровідний документ"], record["Підстава"], record["Текст наказу"]] : [orderNumber, foodDate, date, record["Термін"], record["Дорога"], record["Прибуття.План"] || "", "", "", "", record["Підстава"], record["Супровідний документ"], "", record["Текст наказу"]])];
@@ -107,6 +107,9 @@ for (const name of order) {
   const dateHeaders = new Set(["Зарахування", "Виключення", "Зараховано на продовольче", "Виключено з продовольчого", "Вибуття.Продовольче", "Вибуття", "Прибуття.План", "Прибуття", "Прибуття.Продовольче", "Вибуття.План"]);
   for (const row of values) {
     outputHeaders.forEach((header, index) => {
+      if (["Вибуття.Термін", "Вибуття.Дорога", "Прибуття.Термін"].includes(header) && /^\d+$/.test(row[index] ?? "")) {
+        row[index] = Number(row[index]);
+      }
       if (dateHeaders.has(header) && /^\d{2}\.\d{2}\.\d{4}$/.test(row[index] ?? "")) {
         const [day, month, year] = row[index].split(".").map(Number);
         row[index] = new Date(Date.UTC(year, month - 1, day));
@@ -201,6 +204,7 @@ for (const name of order) {
   if (values.length) {
     const table = sheet.tables.add(`A4:${lastCol}${bottom}`, true, tableNames[name]);
     table.style = "TableStyleDark1";
+    table.showFilterButton = true;
   }
   // Высоту рассчитываем по переносам, не изменяя согласованные ширины колонок.
   for (let index = 0; index < values.length; index += 1) {
