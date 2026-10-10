@@ -6,7 +6,9 @@ from lxml import etree as ET
 from openpyxl import load_workbook
 
 root = Path(__file__).resolve().parents[1]
-reference = root / 'Tasks/01.Food/Work/2026.10.09/РУХ_last_format_reference.xlsx'
+if len(sys.argv) != 3:
+    raise ValueError('Нужны путь выходной таблицы и путь образца РУХ_last')
+reference = Path(sys.argv[2])
 output = Path(sys.argv[1])
 ns = {'s': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'}
 tag = lambda name: '{' + ns['s'] + '}' + name
@@ -61,10 +63,11 @@ dxfs.set('count', str(len(dxfs)))
 book = load_workbook(reference, data_only=False)
 sheet = book['Сухпрод']
 generated = load_workbook(output)
+last_row = max((cell.row for row in generated['Сухпрод'].iter_rows(min_row=3, min_col=3, max_col=3) for cell in row if cell.value is not None), default=2)
 target = ET.fromstring(data['xl/worksheets/sheet2.xml'])
 for row in target.find('s:sheetData', ns):
     row_number = int(row.get('r'))
-    if row_number < 2 or row_number > 101:
+    if row_number < 2 or row_number > last_row:
         continue
     if row_number > 2:
         rank = str(generated['Сухпрод'].cell(row_number, 2).value or '')
@@ -85,26 +88,68 @@ for col in target.find('s:cols', ns):
         col.set('width', str(sheet.column_dimensions[chr(64 + lower)].width))
 for rule in list(target.findall('s:conditionalFormatting', ns)):
     target.remove(rule)
-cf = ET.Element(tag('conditionalFormatting'), sqref='C3:C101')
-ET.SubElement(cf, tag('cfRule'), type='duplicateValues', dxfId=str(dxf_offset), priority='1')
+cf = ET.Element(tag('conditionalFormatting'), sqref=f'C3:C{last_row}') if last_row > 2 else None
+if cf is not None:
+    ET.SubElement(cf, tag('cfRule'), type='duplicateValues', dxfId=str(dxf_offset), priority='1')
 # Условное форматирование идёт после mergeCells и перед прочими свойствами листа.
 insert_at = next((i for i, node in enumerate(target) if ET.QName(node).localname in ['dataValidations', 'hyperlinks', 'printOptions', 'pageMargins', 'pageSetup', 'tableParts']), len(target))
-target.insert(insert_at, cf)
-data['xl/styles.xml'] = ET.tostring(styles, xml_declaration=True, encoding='UTF-8', standalone=True)
+if cf is not None:
+    target.insert(insert_at, cf)
 data['xl/worksheets/sheet2.xml'] = ET.tostring(target, xml_declaration=True, encoding='UTF-8', standalone=True)
 data['xl/theme/theme1.xml'] = ref['xl/theme/theme1.xml']
+# Исходный РУХ в тёмном режиме может не хранить явные заливки и цвета шрифта.
+fills = styles.find('s:fills', ns)
+fonts = styles.find('s:fonts', ns)
+palette = {}
+for color in ['262626', '383838', '000000']:
+    palette[color] = len(fills)
+    fill = ET.SubElement(fills, tag('fill'))
+    pattern = ET.SubElement(fill, tag('patternFill'), patternType='solid')
+    ET.SubElement(pattern, tag('fgColor'), rgb='FF' + color)
+    ET.SubElement(pattern, tag('bgColor'), indexed='64')
+style_cache = {}
+def dark_style(original, fill_color, text_color):
+    key = (original, fill_color, text_color)
+    if key not in style_cache:
+        xf = copy.deepcopy(xfs[original])
+        font = copy.deepcopy(fonts[int(xf.get('fontId', '0'))])
+        previous = font.find('s:color', ns)
+        if previous is not None:
+            font.remove(previous)
+        ET.SubElement(font, tag('color'), rgb='FF' + text_color)
+        xf.set('fontId', str(len(fonts)))
+        fonts.append(font)
+        xf.set('fillId', str(palette[fill_color]))
+        xf.set('applyFill', '1')
+        xf.set('applyFont', '1')
+        style_cache[key] = len(xfs)
+        xfs.append(xf)
+    return style_cache[key]
 for name in data:
     if name.startswith('xl/worksheets/sheet') and name.endswith('.xml'):
         node = ET.fromstring(data[name])
-        dark_style = node.find('s:sheetData/s:row/s:c', ns).get('s')
+        for row in node.find('s:sheetData', ns):
+            number = int(row.get('r'))
+            for cell in row:
+                col = ''.join(c for c in cell.get('r') if c.isalpha())
+                if number < 2 or col == 'A':
+                    continue
+                fill = '000000' if number == 2 else ('262626' if number % 2 else '383838')
+                text_color = 'FF9966' if number > 2 and col == 'D' else '8DB4E2' if number > 2 and name.endswith('sheet2.xml') and col == 'G' else 'FFFFFF'
+                cell.set('s', str(dark_style(int(cell.get('s', '0')), fill, text_color)))
+        canvas_style = node.find('s:sheetData/s:row/s:c', ns).get('s')
         cols = node.find('s:cols', ns)
         last = 0
         for col in cols:
-            col.set('style', dark_style)
+            col.set('style', canvas_style)
             last = max(last, int(col.get('max')))
         if last < 16384:
-            ET.SubElement(cols, tag('col'), min=str(last + 1), max='16384', width='13', style=dark_style)
+            ET.SubElement(cols, tag('col'), min=str(last + 1), max='16384', width='13', style=canvas_style)
         data[name] = ET.tostring(node, xml_declaration=True, encoding='UTF-8', standalone=True)
+fills.set('count', str(len(fills)))
+fonts.set('count', str(len(fonts)))
+xfs.set('count', str(len(xfs)))
+data['xl/styles.xml'] = ET.tostring(styles, xml_declaration=True, encoding='UTF-8', standalone=True)
 for name in data:
     if name.startswith('xl/tables/table') and name.endswith('.xml'):
         table = ET.fromstring(data[name])

@@ -1,58 +1,112 @@
+"""Сверяет таблицу и выписки Food с выбранной папкой Sources и шаблонами."""
+
+import argparse
+import re
 import sys
+import zipfile
+from datetime import date, timedelta
 from pathlib import Path
+
+from docx import Document
+from lxml import etree as ET
 from openpyxl import load_workbook
 from pypdf import PdfReader
-from pdf2image import convert_from_path
-from PIL import Image, ImageOps, ImageDraw
 
-sys.stdout.reconfigure(encoding='utf-8')
-root = Path(__file__).resolve().parents[1] / 'Tasks/01.Food'
-work = root / 'Work/2026.10.09'
-output_path = root / 'Results/2026.10.09/v2 Рапорти_продовольче_сухпрод_2026.10.09.xlsx'
-wb = load_workbook(output_path)
-assert len(wb['Сухпрод'].tables['DryRations'].ref.split(':')) == 2
-assert wb['Сухпрод'].tables['DryRations'].ref == 'B2:N101'
-assert wb['Продовольче'].tables['FoodReports'].ref == 'B2:O3'
-assert not any(cell.value is not None for row in wb['Продовольче'].iter_rows(min_row=3) for cell in row)
-assert [wb['Сухпрод'].cell(2, col).value for col in range(2, 11)] == ['Звання', 'ПІБ', 'ІПН/Установа', 'Початок', 'Тривалість', 'Припинення', 'Підстава', 'Наказ', 'Додаткова інформація']
-assert wb['Сухпрод']['C3'].fill.fgColor.rgb != 'FFFFC7CE'
-assert any(rule.type == 'duplicateValues' for rules in wb['Сухпрод'].conditional_formatting._cf_rules.values() for rule in rules)
-assert wb['Сухпрод']['B3'].font.name == 'Times New Roman'
-reference = load_workbook(work / 'РУХ_last_format_reference.xlsx')
-assert all(wb['Сухпрод'].column_dimensions[col].width == reference['Сухпрод'].column_dimensions[col].width for col in 'ABCDEFGHIJ')
-counts = {}
-for row in range(3, 102):
-    reporter = wb['Сухпрод'].cell(row, 13).value
-    counts[reporter] = counts.get(reporter, 0) + 1
-assert counts == {'КОРНЕНКО': 76, 'МОРОЗОВИЧ': 3, 'МІЗЯК': 20}
-assert sum(wb['Сухпрод'].cell(row, 6).value for row in range(3, 102)) == 221
-for sheet in wb:
-    for row in sheet.iter_rows():
-        assert all('.docx' not in str(cell.value).lower() for cell in row)
-for sheet in wb:
-    assert sheet.freeze_panes is None
-    assert wb._fills[wb._cell_styles[sheet.column_dimensions['A'].style].fillId].fgColor.rgb[-6:] == '262626'
-    assert sheet.column_dimensions['AO'].style or any(c.min <= 16384 <= c.max and c.style for c in sheet.column_dimensions.values())
-    print(sheet.title, sheet.max_row, 'no freeze, dark canvas')
-for row in range(3, 102):
-    assert wb['Сухпрод'][f'G{row}'].value in ['=[@Початок]+[@Тривалість]', '=DryRations[[#This Row],[Початок]]+DryRations[[#This Row],[Тривалість]]']
-    assert wb['Сухпрод'][f'E{row}'].value.year == 2026
-    assert wb['Сухпрод'][f'G{row}'].number_format == reference['Сухпрод']['G1380'].number_format
-cached = load_workbook(output_path, data_only=True)
-assert cached['Сухпрод']['G3'].value.day == 14
-poppler = 'C:/Users/isrepeat/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/poppler/Library/bin'
-thumbs = []
-for file in work.glob('*.pdf'):
-    pages = convert_from_path(str(file), dpi=100, poppler_path=poppler)
-    print(file.name, len(pages), 'pages')
-    for index, page in enumerate(pages, 1):
-        page.save(work / f'{file.stem}-{index}.png')
-        thumb = ImageOps.contain(page, (420, 600))
-        tile = Image.new('RGB', (440, 630), 'white')
-        tile.paste(thumb, (10, 25))
-        ImageDraw.Draw(tile).text((5, 5), f'{file.stem} / {index}', fill='black')
-        thumbs.append(tile)
-contact = Image.new('RGB', (440 * 4, 630 * ((len(thumbs) + 3) // 4)), '#888888')
-for index, tile in enumerate(thumbs):
-    contact.paste(tile, ((index % 4) * 440, (index // 4) * 630))
-contact.save(work / 'extracts-contact.png')
+from food_person_genitive import person_accusative
+from food_run import ROOT, load_run
+
+NS = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
+
+
+def verify(folder, workbook):
+    run = load_run(folder)
+    book = load_workbook(workbook)
+    cached = load_workbook(workbook, data_only=True)
+    reference = load_workbook(run['reference'])
+    assert book.sheetnames == ['Продовольче', 'Сухпрод']
+    for name, kind, table_name, last_col in [('Продовольче', 'removal', 'FoodReports', 'O'), ('Сухпрод', 'dry', 'DryRations', 'N')]:
+        sheet = book[name]
+        expected = [(group, person) for group in run['groups'] if group['kind'] == kind for person in group['people']]
+        assert sheet.tables[table_name].ref == f'B2:{last_col}{max(3, len(expected) + 2)}'
+        assert sheet.freeze_panes is None and sheet.sheet_view.showGridLines is False
+        assert sheet.column_dimensions['A'].style
+        for row, (group, person) in enumerate(expected, 3):
+            assert [sheet.cell(row, c).value for c in (2, 3, 4)] == [person['rank'], person['name'], group['military']]
+            if kind == 'dry':
+                assert sheet.cell(row, 5).value.date().isoformat() == group['start']
+                assert sheet.cell(row, 6).value == group['duration']
+                assert 'Початок' in sheet.cell(row, 7).value and 'Тривалість' in sheet.cell(row, 7).value
+                assert cached[name].cell(row, 7).value.date() == date.fromisoformat(group['start']) + timedelta(days=group['duration'])
+                basis_col, order_col, info_col, source_col, ipn_col = 8, 9, 10, 11, 14
+            else:
+                assert all(sheet.cell(row, c).value is None for c in (5, 6, 7))
+                assert sheet.cell(row, 8).value.date().isoformat() == group['start']
+                basis_col, order_col, info_col, source_col, ipn_col = 10, 9, 11, 12, 15
+            assert sheet.cell(row, basis_col).value == group['basis']
+            assert sheet.cell(row, order_col).value == run['order']['number']
+            assert sheet.cell(row, info_col).value is None
+            assert sheet.cell(row, source_col).value == '; '.join(group['source_pages'])
+            assert sheet.cell(row, ipn_col).value in (person.get('ipn'), '')
+            assert sheet.cell(row, 3).fill.fgColor.rgb[-6:] == ('262626' if row % 2 else '383838')
+        for row in sheet:
+            assert all(not (isinstance(cell.value, str) and cell.value.startswith(('#REF!', '#DIV/0!', '#VALUE!', '#NAME?', '#N/A', '#NUM!'))) for cell in row)
+    for col in 'ABCDEFGHIJ':
+        assert book['Сухпрод'].column_dimensions[col].width == reference['Сухпрод'].column_dimensions[col].width
+    rules = [rule for group in book['Сухпрод'].conditional_formatting._cf_rules.values() for rule in group]
+    assert any(rule.type == 'duplicateValues' for rule in rules)
+    assert book['Сухпрод'].tables['DryRations'].tableColumns[5].calculatedColumnFormula is not None
+    for group in run['groups']:
+        operation = 'сухпай' if group['kind'] == 'dry' else 'снять с продовольствия'
+        belonging = '[НАШИ]' if group['military'] == 'А7383' else '[ЧУЖИЕ]'
+        template = next(path for path in (ROOT / 'Documents/Templates/Extracts [food]').glob('*.docx') if operation in path.name and belonging in path.name)
+        outputs = [path for path in (Path(run['results']) / 'Extracts').glob('*.docx') if f'- {group["reporter"]})' in path.name]
+        corrected = [path for path in (Path(run['results']) / 'Extracts/Исправленные основания').glob('*.docx') if f'- {group["reporter"]})' in path.name]
+        if corrected:
+            outputs = corrected
+        assert len(outputs) == 1
+        output = outputs[0]
+        assert output.name.startswith(f'{run["order"]["date"]} {run["order"]["number"]} ')
+        with zipfile.ZipFile(template) as original, zipfile.ZipFile(output) as final:
+            assert original.namelist() == final.namelist()
+            for part in original.namelist():
+                if part != 'word/document.xml':
+                    assert original.read(part) == final.read(part), f'Изменена часть шаблона: {part}'
+            source_tree, tree = ET.fromstring(original.read('word/document.xml')), ET.fromstring(final.read('word/document.xml'))
+            assert ET.tostring(source_tree.find('.//w:sectPr', NS)) == ET.tostring(tree.find('.//w:sectPr', NS))
+            text = '\n'.join(''.join(p.xpath('.//w:t/text()', namespaces=NS)) for p in tree.findall('.//w:p', NS))
+            assert not re.search(r'\{[^{}]+\}', text)
+            for number, person in enumerate(group['people'], 1):
+                rank, name = person_accusative(person)
+                punctuation = '.' if number == len(group['people']) else ';'
+                assert f'{number}. {rank} {name}{punctuation}' in text
+            for person in group.get('excluded_people', []):
+                assert person['name'].split()[0] not in text
+            assert re.sub(r'^лист\b', 'рапорт', group['raport']) in text and group['incoming_number'] in text
+            assert run['order']['name'] in text and run['order']['rank'] in text
+            if group.get('meal'):
+                assert group['meal'] not in text
+            # Исходные свойства абзацев и фрагментов остаются на месте; добавлен только список.
+            source_doc, doc = Document(template), Document(output)
+            source_props = [ET.tostring(p._p.pPr) if p._p.pPr is not None else b'' for p in source_doc.paragraphs]
+            final_paragraphs = [p for p in doc.paragraphs if not re.match(r'^\d+\. ', p.text)]
+            basis_index = next(i for i, p in enumerate(final_paragraphs) if p.text.startswith('Підстава:'))
+            del final_paragraphs[basis_index - 1]
+            assert len(final_paragraphs) == len(source_props)
+            assert [ET.tostring(p._p.pPr) if p._p.pPr is not None else b'' for p in final_paragraphs] == source_props
+        print(f'Выписка проверена: {output.name}')
+    dry = [(group, person) for group in run['groups'] if group['kind'] == 'dry' for person in group['people']]
+    missing = [person['name'] for _, person in dry if 'Не знайдено' in person['match']]
+    changed_ranks = [person['name'] for _, person in dry if person['rank'] != person['source_rank']]
+    print(f'{folder}: приказ №{run["order"]["number"]}; сухпай {len(dry)}; снятие {sum(len(g["people"]) for g in run["groups"] if g["kind"] == "removal")}; комплектов {sum(g["duration"] for g, _ in dry)}')
+    print(f'Без совпадения ШПО: {len(missing)}; расхождения званий: {len(changed_ranks)}')
+    for pdf in Path(run['work']).glob('final-*.pdf'):
+        print(f'Word-рендер: {pdf.name}, страниц {len(PdfReader(pdf).pages)}')
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--date', required=True)
+    parser.add_argument('--workbook', required=True)
+    args = parser.parse_args()
+    sys.stdout.reconfigure(encoding='utf-8')
+    verify(args.date, args.workbook)

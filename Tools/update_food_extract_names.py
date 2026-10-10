@@ -4,16 +4,24 @@ import zipfile
 from pathlib import Path
 
 from lxml import etree as ET
-from food_person_genitive import person_genitive
+from food_person_genitive import person_accusative
+from food_run import load_run
+import argparse
+import shutil
 
 root = Path(__file__).resolve().parents[1]
 task = root / 'Tasks/01.Food'
-groups = json.loads((task / 'Work/2026.10.09/reports.json').read_text(encoding='utf-8'))
-folder = task / 'Results/2026.10.09/Extracts'
+parser = argparse.ArgumentParser()
+parser.add_argument('--date', required=True)
+run = load_run(parser.parse_args().date)
+groups = run['groups']
+folder = Path(run['results']) / 'Extracts'
+backup = Path(run['work']) / 'Before_declension_fix'
+backup.mkdir(exist_ok=True)
 word = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
 count = 0
 for group in groups:
-    paths = list(folder.rglob(f'2026* - {group["reporter"]}) *.docx'))
+    paths = list(folder.glob(f'2026* - {group["reporter"]}) *.docx'))
     for path in paths:
         with zipfile.ZipFile(path) as archive:
             files = {name: archive.read(name) for name in archive.namelist()}
@@ -27,7 +35,7 @@ for group in groups:
                 continue
             index = int(match[1])
             person = group['people'][index - 1]
-            rank, name = person_genitive(person)
+            rank, name = person_accusative(person)
             punctuation = '.' if index == len(group['people']) else ';'
             replacement = f'{index}. {rank} {name}{punctuation}'
             nodes[0].text = replacement
@@ -36,6 +44,8 @@ for group in groups:
             changed += 1
         assert changed == len(group['people']), (path, changed)
         files['word/document.xml'] = ET.tostring(document, xml_declaration=True, encoding='UTF-8', standalone=True)
+        if not (backup / path.name).exists():
+            shutil.copy2(path, backup / path.name)
         try:
             target = path
             archive = zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED)
