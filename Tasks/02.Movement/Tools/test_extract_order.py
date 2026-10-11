@@ -1,4 +1,4 @@
-"""Проверки извлечения ТВО без персональных данных из реального справочника."""
+"""Проверки инструментов РУХ: извлечение ТВО без реального справочника."""
 import unittest
 
 from extract_order import acting_replacement, return_before_departure

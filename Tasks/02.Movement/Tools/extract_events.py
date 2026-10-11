@@ -3,9 +3,10 @@ from pathlib import Path
 import csv
 import re
 
-REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
+REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 ROOT = REPOSITORY_ROOT / "Documents" / "Orders" / "А7383" / "2026"
-OUTPUT = REPOSITORY_ROOT / "events_212_277.csv"
+OUTPUT = Path(__file__).resolve().parents[1] / 'Work' / "events_212_277.csv"
+OUTPUT.parent.mkdir(parents=True, exist_ok=True)
 MONTHS = {"січня": "01", "лютого": "02", "березня": "03", "квітня": "04", "травня": "05", "червня": "06", "липня": "07", "серпня": "08", "вересня": "09", "жовтня": "10", "листопада": "11", "грудня": "12"}
 ORDER_RE = re.compile(r"№\s*(\d+)")
 NAME_RE = re.compile(r"([А-ЯІЇЄҐ][А-ЯІЇЄҐ'’\-]{2,}\s+[А-ЯІЇЄҐ][а-яіїєґ'’\-]+\s+[А-ЯІЇЄҐ][а-яіїєґ'’\-]+(?:\s+[А-ЯІЇЄҐ][а-яіїєґ'’\-]+)?)")

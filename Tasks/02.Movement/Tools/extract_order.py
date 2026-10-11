@@ -1,7 +1,7 @@
 """Универсальное извлечение кандидатов событий из строевого приказа.
 
 Пример:
-  python Tools/extract_order.py "Documents/Orders/А7383/2026/2026-09-27 №280 (Черкашин).docx"
+  python Tasks/02.Movement/Tools/extract_order.py "Documents/Orders/А7383/2026/2026-09-27 №280 (Черкашин).docx"
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from docx import Document
 from openpyxl import load_workbook
 
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[3]
 SHPO_PATH = ROOT / "Tools" / "ШПО.xlsx"
 IPN_RE = re.compile(r"\b(\d{10})\b")
 RANK_RE = re.compile(r"(?:^|\.\s*)(солдата запасу|рядового|солдата|солдат|матроса|старшого солдата|молодшого сержанта|старшого сержанта|сержанта|старшого лейтенанта|лейтенанта|майора)\s+", re.I)
@@ -311,7 +311,8 @@ def main() -> None:
     paragraphs = [paragraph.text.strip().replace("\t", " ") for paragraph in Document(order_path).paragraphs]
     paragraphs = [paragraph for paragraph in paragraphs if paragraph]
     number, order_day = parse_order_info(paragraphs)
-    output_path = args.output or ROOT / f"events_{number}.csv"
+    output_path = args.output or Path(__file__).resolve().parents[1] / 'Work' / order_day.strftime('%Y.%m.%d') / f"events_{number}.csv"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     alf, shpo_ranks, positions = load_shpo()
     name_ids: dict[str, list[str]] = {}
     for person_ipn, name in alf.items():

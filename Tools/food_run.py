@@ -3,15 +3,17 @@
 import copy
 import json
 import re
+import sys
 from datetime import datetime
 from pathlib import Path
 
 from openpyxl import load_workbook
 from openpyxl.utils.cell import range_boundaries
 
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'Tasks/02.Movement/Tools'))
 from extract_order import load_shpo
 
-ROOT = Path(__file__).resolve().parents[1]
 TASK = ROOT / 'Tasks/01.Food'
 
 
@@ -68,6 +70,7 @@ def load_run(folder):
         if any(not Path(path).is_file() or Path(path).parent != source for path in group['source_pages']):
             raise ValueError('Каждая фотография должна существовать в выбранной папке Sources')
         registration = datetime.strptime(group['incoming_date'], '%Y-%m-%d').strftime('%d.%m.%Y')
+        group['raport'] = group['raport'].translate(str.maketrans('«»“”„', '"""""'))
         group['basis'] = f'{group["raport"]} (вх. № {group["incoming_number"]} від {registration})'
         if group.get('reporter_name'):
             author = index.get(normalized(group['reporter_name']), [])

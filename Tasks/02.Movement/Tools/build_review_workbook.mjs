@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import { Workbook, SpreadsheetFile } from "@oai/artifact-tool";
 
-// Сборщик принимает проверенные данные и явный путь новой версии, не перезаписывает старую.
+// Сборщик РУХ принимает проверенные данные и явный путь новой версии, не перезаписывает старую.
 const [inputPath, outputPath, outputDir] = process.argv.slice(2);
 if (!inputPath || !outputPath || !outputDir) throw new Error("Укажите входной JSON/CSV, выходной XLSX и папку превью");
 try { await fs.access(outputPath); throw new Error(`Файл уже существует: ${outputPath}`); }
