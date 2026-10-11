@@ -59,7 +59,7 @@ def load_run(folder):
         index.setdefault(normalized(name), []).append(ipn)
     groups = copy.deepcopy(manifest['groups'])
     for group in groups:
-        if group['kind'] not in ('dry', 'removal') or len(group['people']) != group['expected_count']:
+        if group['kind'] not in ('dry', 'removal', 'enrollment') or len(group['people']) != group['expected_count']:
             raise ValueError(f'Неверный тип или число людей: {group["reporter"]}')
         if group['kind'] == 'dry' and (not isinstance(group['duration'], int) or group['duration'] <= 0):
             raise ValueError('Продолжительность сухпайка должна быть положительным целым числом')

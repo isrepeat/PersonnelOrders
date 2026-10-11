@@ -51,7 +51,7 @@ def build_extracts(folder):
     order_date = date.fromisoformat(run['order']['date'])
     outputs = []
     for group in run['groups']:
-        operation = 'сухпай' if group['kind'] == 'dry' else 'снять с продовольствия'
+        operation = {'dry': 'сухпай', 'removal': 'снять с продовольствия', 'enrollment': 'зачислить на продовольствие'}[group['kind']]
         belonging = '[НАШИ]' if group['military'] == 'А7383' else '[ЧУЖИЕ]'
         matches = [path for path in templates.glob('*.docx') if operation in path.name and belonging in path.name]
         if len(matches) != 1:
@@ -59,7 +59,7 @@ def build_extracts(folder):
         template = matches[0]
         doc = Document(template)
         start = date.fromisoformat(group['start'])
-        slot = '{Period}' if group['kind'] == 'dry' else '{RemovalDate}'
+        slot = {'dry': '{Period}', 'removal': '{RemovalDate}', 'enrollment': '{EnrollmentDate}'}[group['kind']]
         prototype = copy.deepcopy(next(p._p for p in doc.paragraphs if slot in p.text))
         anchor = next(p._p for p in doc.paragraphs if p.text.startswith('Підстава:'))
         separator = copy.deepcopy(anchor.getprevious())
@@ -78,7 +78,7 @@ def build_extracts(folder):
             replacements.update({'{DurationText}': f'{duration} {word}', '{Period}': period_text(start, start + timedelta(days=duration - 1))})
         else:
             removal = f'{start:%d} {MONTHS[start.month - 1]} {start.year} року'
-            replacements['{RemovalDate}'] = removal
+            replacements[slot] = removal
         for paragraph in doc._element.iter(W + 'p'):
             replace_placeholders(paragraph, replacements)
         for number, person in enumerate(group['people'], 1):

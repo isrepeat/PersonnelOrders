@@ -26,7 +26,7 @@ def verify(folder, workbook):
     assert book.sheetnames == ['Продовольче', 'Сухпрод']
     for name, kind, table_name, last_col in [('Продовольче', 'removal', 'FoodReports', 'O'), ('Сухпрод', 'dry', 'DryRations', 'N')]:
         sheet = book[name]
-        expected = [(group, person) for group in run['groups'] if group['kind'] == kind for person in group['people']]
+        expected = [(group, person) for group in run['groups'] if (group['kind'] == 'dry' if kind == 'dry' else group['kind'] != 'dry') for person in group['people']]
         assert sheet.tables[table_name].ref == f'B2:{last_col}{max(3, len(expected) + 2)}'
         assert sheet.freeze_panes is None and sheet.sheet_view.showGridLines is False
         assert sheet.column_dimensions['A'].style
@@ -39,9 +39,15 @@ def verify(folder, workbook):
                 assert cached[name].cell(row, 7).value.date() == date.fromisoformat(group['start']) + timedelta(days=group['duration'])
                 basis_col, order_col, info_col, source_col, ipn_col = 8, 9, 10, 11, 14
             else:
-                assert all(sheet.cell(row, c).value is None for c in (5, 6, 7))
-                assert sheet.cell(row, 8).value.date().isoformat() == group['start']
-                basis_col, order_col, info_col, source_col, ipn_col = 10, 9, 11, 12, 15
+                if group['kind'] == 'enrollment':
+                    assert sheet.cell(row, 5).value is None and all(sheet.cell(row, c).value is None for c in (8, 9))
+                    assert sheet.cell(row, 6).value.date().isoformat() == group['start']
+                    order_col = 7
+                else:
+                    assert all(sheet.cell(row, c).value is None for c in (5, 6, 7))
+                    assert sheet.cell(row, 8).value.date().isoformat() == group['start']
+                    order_col = 9
+                basis_col, info_col, source_col, ipn_col = 10, 11, 12, 15
             assert sheet.cell(row, basis_col).value == group['basis']
             assert sheet.cell(row, order_col).value == run['order']['number']
             assert sheet.cell(row, info_col).value is None
@@ -53,14 +59,15 @@ def verify(folder, workbook):
     for col in 'ABCDEFGHIJ':
         assert book['Сухпрод'].column_dimensions[col].width == reference['Сухпрод'].column_dimensions[col].width
     rules = [rule for group in book['Сухпрод'].conditional_formatting._cf_rules.values() for rule in group]
-    assert any(rule.type == 'duplicateValues' for rule in rules)
+    if any(group['kind'] == 'dry' for group in run['groups']):
+        assert any(rule.type == 'duplicateValues' for rule in rules)
     assert book['Сухпрод'].tables['DryRations'].tableColumns[5].calculatedColumnFormula is not None
     for group in run['groups']:
-        operation = 'сухпай' if group['kind'] == 'dry' else 'снять с продовольствия'
+        operation = {'dry': 'сухпай', 'removal': 'снять с продовольствия', 'enrollment': 'зачислить на продовольствие'}[group['kind']]
         belonging = '[НАШИ]' if group['military'] == 'А7383' else '[ЧУЖИЕ]'
         template = next(path for path in (ROOT / 'Documents/Templates/Extracts [food]').glob('*.docx') if operation in path.name and belonging in path.name)
-        outputs = [path for path in (Path(run['results']) / 'Extracts').glob('*.docx') if f'- {group["reporter"]})' in path.name]
-        corrected = [path for path in (Path(run['results']) / 'Extracts/Исправленные основания').glob('*.docx') if f'- {group["reporter"]})' in path.name]
+        outputs = [path for path in (Path(run['results']) / 'Extracts').glob('*.docx') if f'- {group["reporter"]})' in path.name and operation in path.name]
+        corrected = [path for path in (Path(run['results']) / 'Extracts/Исправленные основания').glob('*.docx') if f'- {group["reporter"]})' in path.name and operation in path.name]
         if corrected:
             outputs = corrected
         assert len(outputs) == 1
@@ -75,6 +82,9 @@ def verify(folder, workbook):
             assert ET.tostring(source_tree.find('.//w:sectPr', NS)) == ET.tostring(tree.find('.//w:sectPr', NS))
             text = '\n'.join(''.join(p.xpath('.//w:t/text()', namespaces=NS)) for p in tree.findall('.//w:p', NS))
             assert not re.search(r'\{[^{}]+\}', text)
+            if group['kind'] == 'enrollment':
+                assert 'зарахувати на продовольче забезпечення' in text
+                assert 'зняти з продовольчого забезпечення' not in text
             for number, person in enumerate(group['people'], 1):
                 rank, name = person_accusative(person)
                 punctuation = '.' if number == len(group['people']) else ';'
@@ -99,6 +109,7 @@ def verify(folder, workbook):
     changed_ranks = [person['name'] for _, person in dry if person['rank'] != person['source_rank']]
     print(f'{folder}: приказ №{run["order"]["number"]}; сухпай {len(dry)}; снятие {sum(len(g["people"]) for g in run["groups"] if g["kind"] == "removal")}; комплектов {sum(g["duration"] for g, _ in dry)}')
     print(f'Без совпадения ШПО: {len(missing)}; расхождения званий: {len(changed_ranks)}')
+    print(f'Зачисление на продовольствие: {sum(len(g["people"]) for g in run["groups"] if g["kind"] == "enrollment")}')
     for pdf in Path(run['work']).glob('final-*.pdf'):
         print(f'Word-рендер: {pdf.name}, страниц {len(PdfReader(pdf).pages)}')
 

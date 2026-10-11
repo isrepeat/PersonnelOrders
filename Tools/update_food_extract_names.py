@@ -21,7 +21,8 @@ backup.mkdir(exist_ok=True)
 word = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
 count = 0
 for group in groups:
-    paths = list(folder.glob(f'2026* - {group["reporter"]}) *.docx'))
+    operation = {'dry': 'сухпай', 'removal': 'снять с продовольствия', 'enrollment': 'зачислить на продовольствие'}[group['kind']]
+    paths = [path for path in folder.glob(f'2026* - {group["reporter"]}) *.docx') if operation in path.name]
     for path in paths:
         with zipfile.ZipFile(path) as archive:
             files = {name: archive.read(name) for name in archive.namelist()}

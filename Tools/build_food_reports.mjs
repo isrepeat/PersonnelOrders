@@ -18,6 +18,7 @@ for (const group of run.groups) {
   for (const person of group.people) {
     const extra = [group.source_pages.join('; '), person.match, group.reporter, person.ipn || ''];
     if (group.kind === 'dry') dry.push([person.rank, person.name, group.military, serial(group.start), group.duration, null, group.basis, run.order.number, null, ...extra]);
+    else if (group.kind === 'enrollment') food.push([person.rank, person.name, group.military, null, serial(group.start), run.order.number, null, null, group.basis, null, ...extra]);
     else food.push([person.rank, person.name, group.military, null, null, null, serial(group.start), run.order.number, group.basis, null, ...extra]);
   }
 }
@@ -63,7 +64,7 @@ console.log((await wb.inspect({ kind: 'match', searchTerm: '#REF!|#DIV/0!|#VALUE
 await fs.mkdir(path.dirname(output), { recursive: true });
 await (await SpreadsheetFile.exportXlsx(wb)).save(output);
 for (const name of ['Продовольче', 'Сухпрод']) {
-  const preview = await wb.render({ sheetName: name, range: name === 'Сухпрод' ? 'A1:K7' : 'A1:L4', scale: 1.3, format: 'png' });
+  const preview = await wb.render({ sheetName: name, range: name === 'Сухпрод' ? 'A1:K7' : `A1:L${Math.max(4, Math.min(food.length + 3, 12))}`, scale: 1.3, format: 'png' });
   await fs.writeFile(`${run.work}/${name}.png`, new Uint8Array(await preview.arrayBuffer()));
 }
 console.log(JSON.stringify({ folder, order: run.order.number, food: food.length, dry: dry.length, output }));
