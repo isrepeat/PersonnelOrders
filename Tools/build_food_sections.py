@@ -10,6 +10,7 @@ from pathlib import Path
 from lxml import etree as ET
 
 from food_run import ROOT, load_run
+from food_docx_language import ukrainian_part
 
 W = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
 OPERATIONS = {'dry': 'сухпай', 'removal': 'снять с продовольствия', 'enrollment': 'зачислить на продовольствие'}
@@ -80,12 +81,12 @@ def build_sections(folder, output=None):
         target.parent.mkdir(parents=True, exist_ok=True)
         with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED) as final:
             for item in original.infolist():
-                final.writestr(item, xml if item.filename == 'word/document.xml' else original.read(item.filename))
+                final.writestr(item, ukrainian_part(item.filename, xml if item.filename == 'word/document.xml' else original.read(item.filename)))
     with zipfile.ZipFile(template) as original, zipfile.ZipFile(target) as final:
         assert original.namelist() == final.namelist()
         for item in original.namelist():
             if item != 'word/document.xml':
-                assert original.read(item) == final.read(item)
+                assert ukrainian_part(item, original.read(item)) == final.read(item)
     print(target)
     return target
 

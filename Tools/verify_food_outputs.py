@@ -13,6 +13,7 @@ from openpyxl import load_workbook
 from pypdf import PdfReader
 
 from food_person_genitive import person_accusative
+from food_docx_language import ukrainian_part, ukrainian_tree
 from food_run import ROOT, load_run
 
 NS = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
@@ -77,11 +78,15 @@ def verify(folder, workbook):
             assert original.namelist() == final.namelist()
             for part in original.namelist():
                 if part != 'word/document.xml':
-                    assert original.read(part) == final.read(part), f'Изменена часть шаблона: {part}'
+                    assert ukrainian_part(part, original.read(part)) == final.read(part), f'Изменена часть шаблона: {part}'
             source_tree, tree = ET.fromstring(original.read('word/document.xml')), ET.fromstring(final.read('word/document.xml'))
             assert ET.tostring(source_tree.find('.//w:sectPr', NS)) == ET.tostring(tree.find('.//w:sectPr', NS))
             text = '\n'.join(''.join(p.xpath('.//w:t/text()', namespaces=NS)) for p in tree.findall('.//w:p', NS))
             assert not re.search(r'\{[^{}]+\}', text)
+            assert text.count('Видати продовольчий атестат.') == int(bool(group.get('food_card')))
+            assert not tree.findall('.//w:noProof', NS)
+            for word_run in tree.findall('.//w:r', NS):
+                assert word_run.find('w:rPr/w:lang', NS).get('{'+NS['w']+'}val') == 'uk-UA'
             if group['kind'] == 'enrollment':
                 assert 'зарахувати на продовольче забезпечення' in text
                 assert 'зняти з продовольчого забезпечення' not in text
@@ -97,6 +102,11 @@ def verify(folder, workbook):
                 assert group['meal'] not in text
             # Исходные свойства абзацев и фрагментов остаются на месте; добавлен только список.
             source_doc, doc = Document(template), Document(output)
+            if not group.get('food_card'):
+                for paragraph in list(source_doc.paragraphs):
+                    if '{FoodCard}' in paragraph.text:
+                        paragraph._p.getparent().remove(paragraph._p)
+            ukrainian_tree(source_doc._element)
             source_props = [ET.tostring(p._p.pPr) if p._p.pPr is not None else b'' for p in source_doc.paragraphs]
             final_paragraphs = [p for p in doc.paragraphs if not re.match(r'^\d+\. ', p.text)]
             basis_index = next(i for i, p in enumerate(final_paragraphs) if p.text.startswith('Підстава:'))

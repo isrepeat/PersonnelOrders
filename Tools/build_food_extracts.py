@@ -11,6 +11,7 @@ from docx import Document
 from lxml import etree as ET
 
 from food_person_genitive import person_accusative
+from food_docx_language import ukrainian_part
 from food_run import ROOT, load_run
 
 W = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
@@ -43,7 +44,7 @@ def replace_placeholders(paragraph, replacements):
             text = ''.join(node.text or '' for node in nodes)
 
 
-def build_extracts(folder):
+def build_extracts(folder, incoming_number=None):
     run = load_run(folder)
     templates = ROOT / 'Documents/Templates/Extracts [food]'
     out = ROOT / run['results'] / 'Extracts'
@@ -51,6 +52,8 @@ def build_extracts(folder):
     order_date = date.fromisoformat(run['order']['date'])
     outputs = []
     for group in run['groups']:
+        if incoming_number is not None and group['incoming_number'] != incoming_number:
+            continue
         operation = {'dry': 'сухпай', 'removal': 'снять с продовольствия', 'enrollment': 'зачислить на продовольствие'}[group['kind']]
         belonging = '[НАШИ]' if group['military'] == 'А7383' else '[ЧУЖИЕ]'
         matches = [path for path in templates.glob('*.docx') if operation in path.name and belonging in path.name]
@@ -79,6 +82,14 @@ def build_extracts(folder):
         else:
             removal = f'{start:%d} {MONTHS[start.month - 1]} {start.year} року'
             replacements[slot] = removal
+        food_card = None
+        for paragraph in list(doc._element.iter(W + 'p')):
+            if '{FoodCard}' in ''.join(paragraph.itertext()):
+                if group.get('food_card'):
+                    replace_placeholders(paragraph, {'{FoodCard}': 'Видати продовольчий атестат.'})
+                    food_card = paragraph
+                else:
+                    paragraph.getparent().remove(paragraph)
         for paragraph in doc._element.iter(W + 'p'):
             replace_placeholders(paragraph, replacements)
         for number, person in enumerate(group['people'], 1):
@@ -94,7 +105,7 @@ def build_extracts(folder):
             rank, name = person_accusative(person)
             ET.SubElement(node, W + 't').text = f'{number}. {rank} {name}{"." if number == len(group["people"]) else ";"}'
             element.append(node)
-            anchor.addprevious(element)
+            (food_card if food_card is not None else anchor).addprevious(element)
         anchor.addprevious(separator)
         filename = template.name
         for token, value in {**replacements, '{Raporter}': group['reporter'], '{Signatory}': run['order']['signatory']}.items():
@@ -107,7 +118,7 @@ def build_extracts(folder):
         document_xml = ET.tostring(doc._element, xml_declaration=True, encoding='UTF-8', standalone=True)
         with zipfile.ZipFile(template) as original, zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
             for item in original.infolist():
-                archive.writestr(item, document_xml if item.filename == 'word/document.xml' else original.read(item.filename))
+                archive.writestr(item, ukrainian_part(item.filename, document_xml if item.filename == 'word/document.xml' else original.read(item.filename)))
         outputs.append(output)
     return outputs
 
@@ -115,7 +126,8 @@ def build_extracts(folder):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--date', required=True, help='Имя папки Sources/YYYY.MM.DD')
+    parser.add_argument('--incoming-number', help='Создать выписки только по указанному входящему номеру')
     args = parser.parse_args()
     sys.stdout.reconfigure(encoding='utf-8')
-    for output in build_extracts(args.date):
+    for output in build_extracts(args.date, args.incoming_number):
         print(output)

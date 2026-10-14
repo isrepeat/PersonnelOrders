@@ -46,8 +46,11 @@ for (const [name, headers, values, dates] of [
     sheet.getRange(`D3:D${last}`).format = { font: { color: '#FF9966' }, horizontalAlignment: 'center' };
     sheet.getRange(`E3:I${last}`).format.horizontalAlignment = 'center';
     sheet.getRange(name === 'Сухпрод' ? `H3:H${last}` : `J3:J${last}`).format.horizontalAlignment = 'left';
-    if (name === 'Продовольче') sheet.getRange(`J3:J${last}`).format = { wrapText: true, rowHeight: 45 };
-    for (let row = 3; row <= last; row++) if (values[row - 3][0].length > 13) sheet.getRange(`B${row}`).format = { wrapText: true, rowHeight: 31.5 };
+    if (name === 'Продовольче') {
+      sheet.getRange(`J3:J${last}`).format.wrapText = true;
+      for (let row = 3; row <= last; row++) sheet.getRange(`B${row}:O${row}`).format.rowHeight = Math.max(45, Math.ceil(String(values[row - 3][8]).length / 60) * 15 + 8);
+    }
+    for (let row = 3; row <= last; row++) if (values[row - 3][0].length > 13) sheet.getRange(`B${row}`).format = { wrapText: true, rowHeight: name === 'Продовольче' ? Math.max(45, Math.ceil(String(values[row - 3][8]).length / 60) * 15 + 8) : 31.5 };
     for (const col of dates) sheet.getRange(`${col}3:${col}${last}`).setNumberFormat('dd.mm.yyyy');
     if (name === 'Сухпрод') {
       sheet.getRange(`G3:G${last}`).format.font.color = '#8DB4E2';
