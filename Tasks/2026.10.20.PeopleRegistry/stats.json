@@ -1,0 +1,12 @@
+{
+  "rows": 1455,
+  "tax": 672,
+  "existing": 6,
+  "temporary": 771,
+  "ambiguous": 4,
+  "repeats": 224,
+  "missing": 2,
+  "historySkipped": 1,
+  "importRows": 1102,
+  "reviewRows": 230
+}
