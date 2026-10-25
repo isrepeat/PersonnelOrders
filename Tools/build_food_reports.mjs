@@ -16,15 +16,16 @@ const serial = text => (Date.parse(text + 'T00:00:00Z') - Date.UTC(1899, 11, 30)
 const food = [], dry = [];
 for (const group of run.groups) {
   for (const person of group.people) {
-    const extra = [group.source_pages.join('; '), person.match, group.reporter, person.ipn || ''];
+    const audit = person.audit;
+    const extra = [group.source_pages.join('; '), person.match, group.reporter, person.ipn || '', (audit.conflicts.length ? 'ПРОТИРІЧЧЯ. ' : '') + audit.notes];
     if (group.kind === 'dry') dry.push([person.rank, person.name, group.military, serial(group.start), group.duration, null, group.basis, run.order.number, null, ...extra]);
     else if (group.kind === 'enrollment') food.push([person.rank, person.name, group.military, null, serial(group.start), run.order.number, null, null, group.basis, null, ...extra]);
     else food.push([person.rank, person.name, group.military, null, null, null, serial(group.start), run.order.number, group.basis, null, ...extra]);
   }
 }
 for (const [name, headers, values, dates] of [
-  ['Продовольче', ['Звання', 'ПІБ', 'Установа', 'Група', 'Зарахування', 'Зарахування.Наказ', 'Виключення', 'Виключення.Наказ', 'Підстава', 'Додаткова інформація', 'Джерело', 'Звірка ШПО', 'Рапорт', 'ІПН'], food, ['F', 'H']],
-  ['Сухпрод', ['Звання', 'ПІБ', 'ІПН/Установа', 'Початок', 'Тривалість', 'Припинення', 'Підстава', 'Наказ', 'Додаткова інформація', 'Джерело', 'Звірка ШПО', 'Рапорт', 'ІПН'], dry, ['E', 'G']]
+  ['Продовольче', ['Звання', 'ПІБ', 'Установа', 'Група', 'Зарахування', 'Зарахування.Наказ', 'Виключення', 'Виключення.Наказ', 'Підстава', 'Додаткова інформація', 'Джерело', 'Звірка ШПО', 'Рапорт', 'ІПН', 'Зауваження'], food, ['F', 'H']],
+  ['Сухпрод', ['Звання', 'ПІБ', 'ІПН/Установа', 'Початок', 'Тривалість', 'Припинення', 'Підстава', 'Наказ', 'Додаткова інформація', 'Джерело', 'Звірка ШПО', 'Рапорт', 'ІПН', 'Зауваження'], dry, ['E', 'G']]
 ]) {
   const sheet = wb.worksheets.add(name);
   sheet.showGridLines = false;
@@ -42,6 +43,7 @@ for (const [name, headers, values, dates] of [
   const widths = name === 'Сухпрод' ? [8.625, 14.75, 40.375, 17.75, 13.375, 12.5, 16.25, 55.875, 8.5, 36.5] : [8.625, 21.25, 42, 13.25, 12.625, 13.375, 13, 13.75, 13.25, 58, 25.25];
   widths.forEach((width, index) => sheet.getRange(`${String.fromCharCode(65 + index)}:${String.fromCharCode(65 + index)}`).format.columnWidth = width);
   sheet.getRange(name === 'Сухпрод' ? 'K:N' : 'L:O').format.columnWidth = 28;
+  sheet.getRange(`${end}:${end}`).format.columnWidth = 100;
   if (values.length) {
     sheet.getRange(`D3:D${last}`).format = { font: { color: '#FF9966' }, horizontalAlignment: 'center' };
     sheet.getRange(`E3:I${last}`).format.horizontalAlignment = 'center';
@@ -56,7 +58,15 @@ for (const [name, headers, values, dates] of [
       sheet.getRange(`G3:G${last}`).format.font.color = '#8DB4E2';
       for (let row = 3; row <= last; row++) sheet.getRange(`G${row}`).formulas = [['=[@Початок]+[@Тривалість]']];
     }
-    sheet.getRange(`${end}3:${end}${last}`).setNumberFormat('@');
+    sheet.getRange(`${String.fromCharCode(end.charCodeAt(0) - 1)}3:${String.fromCharCode(end.charCodeAt(0) - 1)}${last}`).setNumberFormat('@');
+    sheet.getRange(`${end}3:${end}${last}`).format.wrapText = true;
+    const people = run.groups.filter(g => name === 'Сухпрод' ? g.kind === 'dry' : g.kind !== 'dry').flatMap(g => g.people);
+    const colors = { conflict: '#F4CCCC', shpo: '#F4B183', history: '#BDD7EE', warning: '#FFF2CC' };
+    for (let row = 3; row <= last; row++) {
+      const color = colors[people[row - 3].audit.level];
+      if (color) sheet.getRange(`C${row}`).format = { fill: color, font: { color: '#000000' } };
+      sheet.getRange(`B${row}:${end}${row}`).format.rowHeight = Math.max(45, Math.min(400, Math.ceil(String(values[row - 3].at(-1)).length / 85) * 15 + 8));
+    }
     sheet.getRange(`C3:C${last}`).conditionalFormats.add('duplicateValues', { format: { fill: '#FFC7CE', font: { color: '#9C0006' } } });
   }
   sheet.freezePanes.unfreeze();

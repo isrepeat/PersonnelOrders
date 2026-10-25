@@ -4,6 +4,7 @@ import copy
 import json
 import re
 import sys
+from difflib import SequenceMatcher
 from datetime import datetime
 from pathlib import Path
 
@@ -89,12 +90,30 @@ def load_run(folder):
             if group['military'] != 'А7383':
                 person['match'] = f'Зовнішня частина {group["military"]}'
                 continue
-            matches = index.get(key, [])
+            # Близкое совпадение выбирается после проверки полного ПІБ и фиксируется явно.
+            reviewed_name = person.get('shpo_name')
+            matches = index.get(normalized(reviewed_name) if reviewed_name else key, [])
+            if not matches and not reviewed_name:
+                from food_history import similar
+                candidates = []
+                for candidate, candidate_ipns in index.items():
+                    if len(candidate_ipns) == 1 and similar(candidate, {key}):
+                        candidates.append((SequenceMatcher(None, key, candidate).ratio(), candidate_ipns[0]))
+                candidates.sort(reverse=True)
+                person['shpo_candidates'] = [dict(name=alf[ipn], ipn=ipn, score=round(score, 3)) for score, ipn in candidates[:3]]
+                if candidates and candidates[0][0] >= .92 and (len(candidates) == 1 or candidates[0][0] - candidates[1][0] >= .04):
+                    reviewed_name = alf[candidates[0][1]]
+                    matches = [candidates[0][1]]
+                    person['match_reason'] = 'єдиний істотно ближчий кандидат за кількома частинами ПІБ; автоматичне зіставлення позначено для перевірки'
+            if reviewed_name and len(matches) != 1:
+                raise ValueError(f'Проверенное близкое ПІБ не найдено однозначно: {reviewed_name}')
             if len(matches) == 1:
                 ipn = matches[0]
                 person['ipn'], person['name'] = ipn, alf[ipn]
                 person['rank'] = ranks.get(ipn, person['rank']).lower()
                 person['match'] = 'Повний ПІБ звірено з ШПО'
+                if reviewed_name:
+                    person['match'] = f'Близьке ПІБ зіставлено з ШПО; у рапорті: {person["source_name"]}; {person["match_reason"]}'
                 if person['rank'] != person['source_rank']:
                     person['match'] += f'; звання в рапорті: {person["source_rank"]}'
             else:
@@ -103,7 +122,15 @@ def load_run(folder):
     if not references:
         raise FileNotFoundError('Отсутствует сохранённый образец оформления РУХ_last')
     reference = references[-1]
-    return dict(source_folder=folder, order=order, groups=groups, reference=str(reference), results=str(results), work=str(work))
+    run = dict(source_folder=folder, order=order, groups=groups, reference=str(reference), results=str(results), work=str(work))
+    if manifest.get('history_snapshot'):
+        history = work / manifest['history_snapshot']
+    else:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders') as key:
+            history = Path(winreg.QueryValueEx(key, 'Desktop')[0]) / 'РУХ_last.xlsx'
+    from food_history import audit_run
+    return audit_run(run, history)
 
 
 def next_workbook_path(folder):

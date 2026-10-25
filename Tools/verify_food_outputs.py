@@ -15,6 +15,7 @@ from pypdf import PdfReader
 from food_person_genitive import person_accusative
 from food_docx_language import ukrainian_part, ukrainian_tree
 from food_run import ROOT, load_run
+from food_audit_format import COLORS, note_level
 
 NS = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
 
@@ -25,7 +26,7 @@ def verify(folder, workbook):
     cached = load_workbook(workbook, data_only=True)
     reference = load_workbook(run['reference'])
     assert book.sheetnames == ['Продовольче', 'Сухпрод']
-    for name, kind, table_name, last_col in [('Продовольче', 'removal', 'FoodReports', 'O'), ('Сухпрод', 'dry', 'DryRations', 'N')]:
+    for name, kind, table_name, last_col in [('Продовольче', 'removal', 'FoodReports', 'P'), ('Сухпрод', 'dry', 'DryRations', 'O')]:
         sheet = book[name]
         expected = [(group, person) for group in run['groups'] if (group['kind'] == 'dry' if kind == 'dry' else group['kind'] != 'dry') for person in group['people']]
         assert sheet.tables[table_name].ref == f'B2:{last_col}{max(3, len(expected) + 2)}'
@@ -54,7 +55,14 @@ def verify(folder, workbook):
             assert sheet.cell(row, info_col).value is None
             assert sheet.cell(row, source_col).value == '; '.join(group['source_pages'])
             assert sheet.cell(row, ipn_col).value in (person.get('ipn'), '')
-            assert sheet.cell(row, 3).fill.fgColor.rgb[-6:] == ('262626' if row % 2 else '383838')
+            note_col = ipn_col + 1
+            assert sheet.cell(2, note_col).value == 'Зауваження'
+            expected_notes = ('ПРОТИРІЧЧЯ. ' if person['audit']['conflicts'] else '') + person['audit']['notes']
+            assert sheet.cell(row, note_col).value == expected_notes
+            level = note_level(expected_notes)
+            color = COLORS.get(level, '262626' if row % 2 else '383838')
+            assert sheet.cell(row, 3).fill.fgColor.rgb[-6:] == color
+            assert sheet.cell(row, note_col).alignment.wrap_text
         for row in sheet:
             assert all(not (isinstance(cell.value, str) and cell.value.startswith(('#REF!', '#DIV/0!', '#VALUE!', '#NAME?', '#N/A', '#NUM!'))) for cell in row)
     for col in 'ABCDEFGHIJ':

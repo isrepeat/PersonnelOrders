@@ -1,6 +1,8 @@
 """Знахідний падеж мужских ПІБ и званий в списках выписок."""
 
 FIRST_NAMES = {
+    'Наталія': 'Наталію',
+    'Борис': 'Бориса',
     'Ілля': 'Іллю',
     'Юрій': 'Юрія', 'Олег': 'Олега', 'Микола': 'Миколу', 'Роман': 'Романа',
     'Максим': 'Максима', 'Сергій': 'Сергія', 'Андрій': 'Андрія',
@@ -36,6 +38,9 @@ RANKS = {
 
 def person_accusative(person):
     surname, first, patronymic = person['name'].split()
+    # Женские фамилии на согласную и -о не склоняются.
+    if patronymic.endswith('вна') and surname[-1] in 'БВГҐДЖЗКЛМНПРСТФХЦЧШЩЬЙО':
+        return RANKS[person['rank']], f'{surname} {FIRST_NAMES[first]} {patronymic[:-1]}у'
     if surname in SURNAME_EXCEPTIONS:
         surname = SURNAME_EXCEPTIONS[surname]
     elif surname.endswith('ИЙ'):

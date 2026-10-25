@@ -165,3 +165,5 @@ with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
     for name, content in data.items():
         archive.writestr(name, content)
 print('Reference cell styles, exact column widths, duplicate rule and structured formula copied')
+from food_audit_format import apply_audit_format
+apply_audit_format(output)
