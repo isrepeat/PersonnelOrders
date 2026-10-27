@@ -61,6 +61,9 @@ def build_extracts(folder, incoming_number=None):
             raise ValueError(f'Нет единственного актуального шаблона: {operation} {belonging}')
         template = matches[0]
         doc = Document(template)
+        has_subdivision = any('{Subdivision}' in p.text for p in doc.paragraphs)
+        if has_subdivision and group['military'] == 'А7383' and not group.get('subdivision', '').strip():
+            raise ValueError(f'Нужно подтвердить подразделение по фото рапорта: {group["reporter"]}, {group["incoming_number"]}')
         start = date.fromisoformat(group['start'])
         slot = {'dry': '{Period}', 'removal': '{RemovalDate}', 'enrollment': '{EnrollmentDate}'}[group['kind']]
         prototype = copy.deepcopy(next(p._p for p in doc.paragraphs if slot in p.text))
@@ -74,6 +77,7 @@ def build_extracts(folder, incoming_number=None):
             '{SignatoryName}': run['order']['name'], '{Military}': group['military'],
             '{Raport}': re.sub(r'^лист\b', 'рапорт', group['raport']), '{RaportNumber}': group['incoming_number'],
             '{RaportDate}': date.fromisoformat(group['incoming_date']).strftime('%d.%m.%Y'),
+            '{Subdivision}': group.get('subdivision', '').strip().rstrip(':'),
         }
         if group['kind'] == 'dry':
             duration = group['duration']
@@ -94,6 +98,9 @@ def build_extracts(folder, incoming_number=None):
             replace_placeholders(paragraph, replacements)
         for number, person in enumerate(group['people'], 1):
             element = copy.deepcopy(prototype)
+            # Список людей не наследует автоматическую нумерацию абзаца.
+            for numbering in element.findall(W + 'pPr/' + W + 'numPr'):
+                numbering.getparent().remove(numbering)
             for child in list(element):
                 if child.tag != W + 'pPr':
                     element.remove(child)
@@ -103,7 +110,7 @@ def build_extracts(folder, incoming_number=None):
                 if child.tag != W + 'rPr':
                     node.remove(child)
             rank, name = person_accusative(person)
-            ET.SubElement(node, W + 't').text = f'{number}. {rank} {name}{"." if number == len(group["people"]) else ";"}'
+            ET.SubElement(node, W + 't').text = f'{rank} {name}{"." if number == len(group["people"]) else ";"}'
             element.append(node)
             (food_card if food_card is not None else anchor).addprevious(element)
         anchor.addprevious(separator)

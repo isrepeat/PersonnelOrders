@@ -98,10 +98,16 @@ def verify(folder, workbook):
             if group['kind'] == 'enrollment':
                 assert 'зарахувати на продовольче забезпечення' in text
                 assert 'зняти з продовольчого забезпечення' not in text
+            list_lines = set()
             for number, person in enumerate(group['people'], 1):
                 rank, name = person_accusative(person)
                 punctuation = '.' if number == len(group['people']) else ';'
-                assert f'{number}. {rank} {name}{punctuation}' in text
+                line = f'{rank} {name}{punctuation}'
+                list_lines.add(line)
+                assert line in text
+                assert f'{number}. {line}' not in text
+                paragraph = next(p for p in tree.findall('.//w:p', NS) if ''.join(p.xpath('.//w:t/text()', namespaces=NS)) == line)
+                assert paragraph.find('w:pPr/w:numPr', NS) is None
             for person in group.get('excluded_people', []):
                 assert person['name'].split()[0] not in text
             assert re.sub(r'^лист\b', 'рапорт', group['raport']) in text and group['incoming_number'] in text
@@ -116,7 +122,7 @@ def verify(folder, workbook):
                         paragraph._p.getparent().remove(paragraph._p)
             ukrainian_tree(source_doc._element)
             source_props = [ET.tostring(p._p.pPr) if p._p.pPr is not None else b'' for p in source_doc.paragraphs]
-            final_paragraphs = [p for p in doc.paragraphs if not re.match(r'^\d+\. ', p.text)]
+            final_paragraphs = [p for p in doc.paragraphs if p.text not in list_lines]
             basis_index = next(i for i, p in enumerate(final_paragraphs) if p.text.startswith('Підстава:'))
             del final_paragraphs[basis_index - 1]
             assert len(final_paragraphs) == len(source_props)
