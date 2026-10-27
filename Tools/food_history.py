@@ -152,6 +152,17 @@ def audit_person(group, person, events, other_groups=(), prior_reports=()):
         warnings.append('Близькі історичні ПІБ — кандидати, тотожність потребує перевірки: ' + '; '.join(candidates) + '.')
     start = day(group['start'])
     end = start + timedelta(days=group['duration']) if group['kind'] == 'dry' else None
+    # При дополнении пакета ранее внесённый тот же рапорт не является новым конфликтом.
+    def same_report(event):
+        basis = event.get('end_basis') if group['kind'] == 'removal' else event.get('basis')
+        number = re.sub(r'\s+', '', group['incoming_number'])
+        return number in re.sub(r'\s+', '', str(basis or '')) and (
+            (group['kind'] == 'dry' and event['kind'] == 'dry' and event['start'] == start and event['end'] == end) or
+            (group['kind'] == 'removal' and event['kind'] == 'food' and event['end'] == start) or
+            (group['kind'] == 'enrollment' and event['kind'] == 'food' and event['start'] == start))
+    recorded = [event for event in matched if same_report(event)]
+    if recorded:
+        notes.append('Цей рапорт уже внесений до РУХ: ' + ', '.join(event['ref'] for event in recorded) + '; повторно не додавати.')
     scheduled = [g for g in other_groups if g is not group and normal(g['military']) == military and
                  any((person.get('ipn') and p.get('ipn') == person['ipn']) or normal(p['name']) == canonical for p in g['people'])]
     earlier = sorted([g for g in scheduled if g['kind'] in ('enrollment', 'removal') and day(g['start']) < start], key=lambda g: day(g['start']))
@@ -165,12 +176,16 @@ def audit_person(group, person, events, other_groups=(), prior_reports=()):
     def inspect(rows, uncertain=False):
         food = [e for e in rows if e['kind'] == 'food' and e['start']]
         dry = [e for e in rows if e['kind'] == 'dry' and e['start']]
-        active = [e for e in food if e['start'] <= start and (e['end'] is None or start < e['end'])]
+        active = [e for e in food if e['start'] <= start and (e['end'] is None or start < e['end']) and not same_report(e)]
         prefix = 'Можливе протиріччя за близьким ПІБ: ' if uncertain else ''
         dest = warnings if uncertain else conflicts
-        if group['kind'] == 'removal' and not uncertain and not active and not package_active:
+        if group['kind'] == 'removal' and not uncertain and not active and not package_active and not recorded:
             last = max(food, key=lambda e: e['end'] or date.max) if food else None
-            dest.append('Немає відкритого зарахування на дату зняття' + (f'; останній знайдений період: {label(last)}.' if last else '; зарахування в РУХ не знайдено.'))
+            possible_active = [e for e in possible if e['kind'] == 'food' and e['start'] and e['start'] <= start and (e['end'] is None or start < e['end'])]
+            if possible_active:
+                warnings.append('За точним ПІБ відкритого зарахування немає, але близький кандидат має чинний період: ' + '; '.join(label(e) for e in possible_active) + '; перевірити тотожність особи.')
+            else:
+                dest.append('Немає відкритого зарахування на дату зняття' + (f'; останній знайдений період: {label(last)}.' if last else '; зарахування в РУХ не знайдено.'))
         if group['kind'] == 'enrollment' and active:
             dest.append(prefix + 'Повторне зарахування: ' + '; '.join(label(e) for e in active) + '.')
         if group['kind'] in ('enrollment', 'removal'):
@@ -178,11 +193,15 @@ def audit_person(group, person, events, other_groups=(), prior_reports=()):
             if hit:
                 dest.append(prefix + ('Зарахування' if group['kind'] == 'enrollment' else 'Зняття з котла') + ' під час чинного сухпайка: ' + '; '.join(label(e) for e in hit) + '.')
         if group['kind'] == 'dry':
-            hit = [e for e in dry if overlaps(start, end, e['start'], e['end'])]
+            hit = [e for e in dry if overlaps(start, end, e['start'], e['end']) and not same_report(e)]
             if hit:
                 dest.append(prefix + 'Перетин сухпайка: ' + '; '.join(label(e) for e in hit) + '.')
             if food and not package_active and not any(e['start'] <= start and (e['end'] is None or end <= e['end']) for e in food):
-                dest.append(prefix + 'Період сухпайка не покритий відкритим продовольчим зарахуванням: ' + label(max(food, key=lambda e: e['start'])) + '.')
+                covering_candidates = [e for e in possible if e['kind'] == 'food' and e['start'] and e['start'] <= start and (e['end'] is None or end <= e['end'])]
+                if covering_candidates and not uncertain:
+                    warnings.append('За точним ПІБ продовольчий період закритий, але близький кандидат має зарахування, що покриває сухпай: ' + '; '.join(label(e) for e in covering_candidates) + '; перевірити тотожність особи.')
+                else:
+                    dest.append(prefix + 'Період сухпайка не покритий відкритим продовольчим зарахуванням: ' + label(max(food, key=lambda e: e['start'])) + '.')
             elif not food and military != 'А7383' and not uncertain:
                 warnings.append('Для зовнішньої частини не знайдено зарахування, яке покриває сухпай; потрібна перевірка.')
         for event in rows:

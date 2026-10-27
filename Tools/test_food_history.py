@@ -66,6 +66,21 @@ class HistoryTests(unittest.TestCase):
         result = audit_person(first, self.person, [], [first, second])
         self.assertTrue(result['conflicts'])
 
+    def test_existing_same_report_is_not_new_overlap(self):
+        group = self.group('dry', '2026-10-24', duration=3)
+        event = self.event('dry', '2026-10-24', '2026-10-27')
+        event['basis'] = 'рапорт (вх. № 1 від 23.10.2026)'
+        result = audit_person(group, self.person, [event])
+        self.assertFalse(result['conflicts'])
+        self.assertIn('уже внесений', result['notes'])
+
+    def test_close_candidate_with_open_food_is_uncertain_not_definite_absence(self):
+        result = audit_person(self.group('dry', '2026-10-24', duration=3), self.person,
+                              [self.event('food', '2026-06-01', '2026-07-01'), self.event('food', '2026-07-20', None, 'ТЕСТЕНК Іван Петрович')])
+        self.assertFalse(result['conflicts'])
+        self.assertTrue(result['history_alias'])
+        self.assertTrue(any('покриває сухпай' in text for text in result['warnings']))
+
 
 if __name__ == '__main__':
     unittest.main()
