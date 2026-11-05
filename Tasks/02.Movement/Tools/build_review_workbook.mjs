@@ -99,7 +99,8 @@ for (const name of order) {
       return [record["Дія"], rank, record["ПІБ"], record["ІПН"], joined ? date : "", joined ? "" : date, joined ? "ІСТИНА" : "ЛОЖЬ", joined ? "ІСТИНА" : "ЛОЖЬ", joined ? foodDate : "", joined ? "" : foodDate, record["Підстава"], record["Супровідний документ"], record["Текст наказу"]];
     }
     const arrival = record["Дія"].startsWith("Прибув") || record["Дія"].startsWith("Поновити") || record["Дія"].includes("Закрити");
-    const orderNumber = orderNumberText;
+    // При уточнении типа существующего события сохраняем его первичный приказ.
+    const orderNumber = record["Вибуття.Наказ"] ?? orderNumberText;
     if (record["Дія"].split(" | ").includes("Повернення до іншої частини")) {
       return [record["Дія"], rank, record["ПІБ"], record["ІПН"], orderNumber, record["Вибуття.Продовольче"], record["Вибуття"], "", "", "", record["Прибуття"], record["Прибуття.Продовольче"], orderNumber, record["Підстава"], record["Супровідний документ"], record["Підстава"], record["Текст наказу"]];
     }
@@ -114,7 +115,13 @@ for (const name of order) {
   if (uidIndex) values.forEach(row => row.splice(uidIndex, 0, ""));
   if (name === "Прибули") values.forEach(row => row.splice(3, 0, "", ""));
   if (name === "Прибули") values.forEach((row, index) => row.splice(row.length - 1, 0, recordsForSheet[index]["Додаткова інформація"] ?? ""));
-  values = values.map((row, index) => selected.map(header => header === "Додаткова інформація" ? recordsForSheet[index][header] ?? "" : row[legacyHeaders.indexOf(header)] ?? ""));
+  values = values.map((row, index) => selected.map(header => {
+    const record = recordsForSheet[index];
+    const field = header.replace(".Продовольче", ".ПЗ");
+    // Явные поля нужны для исправления ошибочного статуса без фиктивного прибытия.
+    if (Object.hasOwn(record["Поля"] ?? {}, field)) return record["Поля"][field];
+    return header === "Додаткова інформація" ? record[header] ?? "" : row[legacyHeaders.indexOf(header)] ?? "";
+  }));
   // Даты остаются числовыми значениями Excel, а ИПН — текстовыми идентификаторами.
   const dateHeaders = new Set(["Зарахування", "Виключення", "Вибуття.ПЗ", "Вибуття", "Прибуття.План", "Прибуття", "Прибуття.ПЗ", "Вибуття.План"]);
   for (const row of values) {
@@ -130,12 +137,12 @@ for (const name of order) {
   }
   if (values.length) sheet.getRangeByIndexes(4, 0, values.length, outputHeaders.length).values = values;
   const bottom = Math.max(5, values.length + 4);
-  sheet.getRange(`A4:${lastCol}${bottom}`).format.font = { name: "Times New Roman", size: 10, color: "#FFFFFF" };
-  sheet.getRange(`A1:${lastCol}1`).format = { fill: palette[name], font: { name: "Times New Roman", size: 14, bold: true, color: "#FFFFFF" }, horizontalAlignment: "center", verticalAlignment: "center" };
-  sheet.getRange(`A2:${lastCol}2`).format = { font: { name: "Times New Roman", size: 9, italic: true, color: "#D9D9D9" } };
-  sheet.getRange(`A4:${lastCol}4`).format = { fill: "#000000", font: { name: "Times New Roman", size: 10, bold: true, color: "#FFFFFF" }, horizontalAlignment: "center", verticalAlignment: "center", wrapText: true };
+  sheet.getRange(`A4:${lastCol}${bottom}`).format.font = { name: "Arial", size: 11, color: "#FFFFFF" };
+  sheet.getRange(`A1:${lastCol}1`).format = { fill: palette[name], font: { name: "Arial", size: 14, bold: true, color: "#F0B56A" }, horizontalAlignment: "center", verticalAlignment: "center" };
+  sheet.getRange(`A2:${lastCol}2`).format = { font: { name: "Arial", size: 9, italic: true, color: "#D9D9D9" } };
+  sheet.getRange(`A4:${lastCol}4`).format = { fill: "#000000", font: { name: "Arial", size: 11, bold: true, color: "#FFFFFF" }, horizontalAlignment: "center", verticalAlignment: "center", wrapText: true };
   sheet.getRange(`A5:${lastCol}${bottom}`).format.fill = "#262626";
-  sheet.getRange(`A4:${lastCol}${bottom}`).format.borders = { preset: "all", style: "thin", color: "#0D0D0D" };
+  sheet.getRange(`A4:${lastCol}${bottom}`).format.borders = { preset: "all", style: "thin", color: "#000000" };
   sheet.getRange(`A4:${lastCol}${bottom}`).format.verticalAlignment = "center";
   sheet.getRange(`B5:B${bottom}`).format.horizontalAlignment = "center";
   sheet.getRange(`D5:D${bottom}`).format.horizontalAlignment = "center";
@@ -159,9 +166,10 @@ for (const name of order) {
     const lineCount = Math.max(...values[index].map((value, column) => {
       if (value == null || value === "") return 1;
       const width = sheet.getRangeByIndexes(4 + index, column, 1, 1).format.columnWidth;
-      return Math.ceil(String(value).length / Math.max(6, Math.floor(width * 1.15)));
+      const capacity = Math.max(4, Math.floor(width * 0.85));
+      return String(value).split(/\r?\n/).reduce((sum, paragraph) => sum + Math.max(1, Math.ceil(paragraph.length / capacity)), 0);
     }));
-    sheet.getRangeByIndexes(4 + index, 0, 1, outputHeaders.length).format.rowHeight = Math.max(30, Math.min(409, lineCount * 12 + 8));
+    sheet.getRangeByIndexes(4 + index, 0, 1, outputHeaders.length).format.rowHeight = Math.max(30, Math.min(409, lineCount * 14 + 8));
   }
 }
 

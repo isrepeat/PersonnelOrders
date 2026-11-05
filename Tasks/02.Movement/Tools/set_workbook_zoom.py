@@ -34,6 +34,17 @@ def set_zoom(path):
                 default = root.find(f'{{{namespace}}}cellXfs')[0]
                 default.set('fillId', str(len(fills) - 1))
                 default.set('applyFill', '1')
+                # Чёрная сетка пустой области задаётся одним стилем без создания ячеек.
+                border = root.find(f'{{{namespace}}}borders')[0]
+                for side_name in ['left', 'right', 'top', 'bottom']:
+                    side = border.find(f'{{{namespace}}}{side_name}')
+                    if side is None:
+                        side = ET.SubElement(border, f'{{{namespace}}}{side_name}')
+                    side.clear()
+                    side.set('style', 'thin')
+                    ET.SubElement(side, f'{{{namespace}}}color', rgb='FF000000')
+                default.set('applyBorder', '1')
+                default.set('borderId', '0')
                 data = ET.tostring(root, encoding='utf-8', xml_declaration=True)
             elif re.fullmatch(r'xl/worksheets/sheet\d+\.xml', entry.filename):
                 text = data.decode('utf-8')

@@ -102,12 +102,14 @@ export function applyLayout(sheet, headers, values) {
   }
   headers.forEach((header, index) => {
     sheet.getRangeByIndexes(0, index, Math.max(values.length + 4, 5), 1).format.columnWidth = widths[index];
+    if (header === "ПІБ") sheet.getRangeByIndexes(4, index, Math.max(values.length, 1), 1).format.font = { name: "Arial", size: 11, color: "#F0B56A" };
     if (["ІПН", "ІН", "УІД", "Посада", "Посада.Своя", "Посада.Заміщує"].includes(header)) sheet.getRangeByIndexes(4, index, Math.max(values.length, 1), 1).setNumberFormat("@");
   });
   const range = sheet.getRangeByIndexes(3, 0, Math.max(values.length + 1, 2), headers.length);
   range.format.horizontalAlignment = "center";
   range.format.verticalAlignment = "center";
   range.format.wrapText = true;
+  range.format.borders = { preset: "all", style: "thin", color: "#000000" };
   headers.forEach((header, index) => {
     if (header === "ІПН" || movementDates.has(header)) sheet.getRangeByIndexes(4, index, Math.max(values.length, 1), 1).format.wrapText = false;
   });
@@ -132,16 +134,16 @@ export function addSupplementary(workbook, groups) {
     }));
     const lastCol = String.fromCharCode(64 + headers.length);
     const bottom = Math.max(5, values.length + 4);
-    sheet.getRange(`A1:${lastCol}${bottom + 4}`).format = { fill: "#262626", font: { name: "Times New Roman", size: 10, color: "#FFFFFF" }, horizontalAlignment: "center", verticalAlignment: "center" };
+    sheet.getRange(`A1:${lastCol}${bottom + 4}`).format = { fill: "#262626", font: { name: "Arial", size: 11, color: "#FFFFFF" }, horizontalAlignment: "center", verticalAlignment: "center" };
     sheet.getRange(`A1:${lastCol}1`).merge();
     sheet.getRange("A1").values = [[name]];
-    sheet.getRange(`A1:${lastCol}1`).format = { fill: "#404040", font: { name: "Times New Roman", size: 14, bold: true, color: "#FFFFFF" }, horizontalAlignment: "center", verticalAlignment: "center", rowHeight: 25 };
+    sheet.getRange(`A1:${lastCol}1`).format = { fill: "#404040", font: { name: "Arial", size: 14, bold: true, color: "#F0B56A" }, horizontalAlignment: "center", verticalAlignment: "center", rowHeight: 25 };
     sheet.getRange(`A4:${lastCol}4`).values = [headers];
     if (values.length) sheet.getRangeByIndexes(4, 0, values.length, headers.length).values = values;
     const table = sheet.tables.add(`A4:${lastCol}${bottom}`, true, tableNames[name]);
     table.style = "TableStyleDark1";
     table.showFilterButton = true;
-    sheet.getRange(`A4:${lastCol}4`).format = { fill: "#000000", font: { name: "Times New Roman", size: 10, bold: true, color: "#FFFFFF" }, rowHeight: 42 };
+    sheet.getRange(`A4:${lastCol}4`).format = { fill: "#000000", font: { name: "Arial", size: 11, bold: true, color: "#FFFFFF" }, rowHeight: 42 };
     for (let index = 0; index < values.length; index++) {
       sheet.getRangeByIndexes(index + 4, 0, 1, headers.length).format.fill = index % 2 ? "#383838" : "#262626";
     }
@@ -160,8 +162,12 @@ export function addSupplementary(workbook, groups) {
     sheet.getRange(`A4:${lastCol}4`).format.fill = "#5D5142";
     for (let index = 0; index < values.length; index++) sheet.getRangeByIndexes(index + 4, 0, 1, headers.length).format.fill = index % 2 ? "#38342C" : "#302D25";
     for (let index = 0; index < values.length; index++) {
-      const lines = Math.max(...values[index].map((value, column) => empty(value) ? 1 : Math.ceil(String(value).length / Math.max(3, sheet.getRangeByIndexes(index + 4, column, 1, 1).format.columnWidth))));
-      sheet.getRangeByIndexes(index + 4, 0, 1, headers.length).format.rowHeight = Math.min(409, Math.max(36, lines * 12 + 8));
+      const lines = Math.max(...values[index].map((value, column) => {
+        if (empty(value)) return 1;
+        const capacity = Math.max(4, Math.floor(sheet.getRangeByIndexes(index + 4, column, 1, 1).format.columnWidth * 0.85));
+        return String(value).split(/\r?\n/).reduce((sum, paragraph) => sum + Math.max(1, Math.ceil(paragraph.length / capacity)), 0);
+      }));
+      sheet.getRangeByIndexes(index + 4, 0, 1, headers.length).format.rowHeight = Math.min(409, Math.max(36, lines * 14 + 8));
     }
     ranges[name] = `A1:${lastCol}${Math.min(bottom, 10)}`;
   }

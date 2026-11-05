@@ -109,7 +109,9 @@ def verify(folder, workbook):
                 paragraph = next(p for p in tree.findall('.//w:p', NS) if ''.join(p.xpath('.//w:t/text()', namespaces=NS)) == line)
                 assert paragraph.find('w:pPr/w:numPr', NS) is None
             for person in group.get('excluded_people', []):
-                assert person['name'].split()[0] not in text
+                # Однофамилец из действующего списка не является исключённым человеком.
+                _, excluded_name = person_accusative(person)
+                assert excluded_name not in text
             assert re.sub(r'^лист\b', 'рапорт', group['raport']) in text and group['incoming_number'] in text
             assert run['order']['name'] in text and run['order']['rank'] in text
             if group.get('meal'):

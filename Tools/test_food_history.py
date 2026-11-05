@@ -81,6 +81,15 @@ class HistoryTests(unittest.TestCase):
         self.assertTrue(result['history_alias'])
         self.assertTrue(any('покриває сухпай' in text for text in result['warnings']))
 
+    def test_recorded_removal_with_basis_in_wrong_column(self):
+        event = self.event('food', '2026-01-01', '2026-10-24')
+        event['basis'] = 'рапорт (вх. № 1 від 23.10.2026)'
+        event['end_basis'] = None
+        result = audit_person(self.group('removal', '2026-10-24'), self.person, [event])
+        self.assertFalse(result['conflicts'])
+        self.assertIn('уже внесений', result['notes'])
+        self.assertTrue(any('колонці зарахування' in text for text in result['warnings']))
+
 
 if __name__ == '__main__':
     unittest.main()

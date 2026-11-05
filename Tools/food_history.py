@@ -154,15 +154,22 @@ def audit_person(group, person, events, other_groups=(), prior_reports=()):
     end = start + timedelta(days=group['duration']) if group['kind'] == 'dry' else None
     # При дополнении пакета ранее внесённый тот же рапорт не является новым конфликтом.
     def same_report(event):
-        basis = event.get('end_basis') if group['kind'] == 'removal' else event.get('basis')
+        basis = (event.get('end_basis') or event.get('basis')) if group['kind'] == 'removal' else event.get('basis')
         number = re.sub(r'\s+', '', group['incoming_number'])
         return number in re.sub(r'\s+', '', str(basis or '')) and (
             (group['kind'] == 'dry' and event['kind'] == 'dry' and event['start'] == start and event['end'] == end) or
             (group['kind'] == 'removal' and event['kind'] == 'food' and event['end'] == start) or
             (group['kind'] == 'enrollment' and event['kind'] == 'food' and event['start'] == start))
     recorded = [event for event in matched if same_report(event)]
+    possible_recorded = [event for event in possible if same_report(event)]
+    if possible_recorded and not recorded:
+        warnings.append('За близьким ПІБ знайдено цей самий рапорт і дату операції: ' + ', '.join(event['ref'] for event in possible_recorded) + '; перевірити тотожність перед повторним внесенням.')
     if recorded:
         notes.append('Цей рапорт уже внесений до РУХ: ' + ', '.join(event['ref'] for event in recorded) + '; повторно не додавати.')
+        if group['kind'] == 'removal':
+            for event in recorded:
+                if not event.get('end_basis') and event.get('basis'):
+                    warnings.append(f'Некоректні/неповні дані історії {event["ref"]}: підстава зняття записана у колонці зарахування, а не виключення; зняття за датою і рапортом уже внесено.')
     scheduled = [g for g in other_groups if g is not group and normal(g['military']) == military and
                  any((person.get('ipn') and p.get('ipn') == person['ipn']) or normal(p['name']) == canonical for p in g['people'])]
     earlier = sorted([g for g in scheduled if g['kind'] in ('enrollment', 'removal') and day(g['start']) < start], key=lambda g: day(g['start']))
@@ -179,7 +186,7 @@ def audit_person(group, person, events, other_groups=(), prior_reports=()):
         active = [e for e in food if e['start'] <= start and (e['end'] is None or start < e['end']) and not same_report(e)]
         prefix = 'Можливе протиріччя за близьким ПІБ: ' if uncertain else ''
         dest = warnings if uncertain else conflicts
-        if group['kind'] == 'removal' and not uncertain and not active and not package_active and not recorded:
+        if group['kind'] == 'removal' and not uncertain and not active and not package_active and not recorded and not possible_recorded:
             last = max(food, key=lambda e: e['end'] or date.max) if food else None
             possible_active = [e for e in possible if e['kind'] == 'food' and e['start'] and e['start'] <= start and (e['end'] is None or start < e['end'])]
             if possible_active:
