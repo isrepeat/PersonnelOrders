@@ -1,5 +1,6 @@
 import argparse, json, datetime, pathlib, re, sys
 import openpyxl
+from openpyxl.utils.cell import range_boundaries
 
 parser = argparse.ArgumentParser(description='Сверка сентябрьских зачислений с источниками СЗЧ и историей ТП')
 parser.add_argument('--sources-dir', default=str(pathlib.Path(__file__).resolve().parent.parent))
@@ -10,11 +11,18 @@ args = parser.parse_args()
 if not re.fullmatch(r'\d{4}-\d{2}', args.month):
     raise ValueError('Месяц должен иметь формат YYYY-MM')
 root = pathlib.Path(args.sources_dir)
-paths = [root / name for name in [
+names = [
     '0000. СЗЧ по ухвалі суду 05_10_2026.xlsx',
     '00000. СЗЧ_через_БРЕЗ_новий_алгоритм_на 05.10.2026.xlsx',
     'Поіменний список рапортів СЗЧ (1).xlsm'
-]] + [pathlib.Path(args.movement)]
+]
+if root.name == '2026.11.06':
+    names = [
+        '0000. СЗЧ по ухвалі суду 06_11_2026.xlsx',
+        '00000. СЗЧ_через_БРЕЗ_новий_алгоритм_на 06.11.2026.xlsx',
+        'Поіменний список рапортів СЗЧ (4).xlsm',
+    ]
+paths = [root / name for name in names] + [pathlib.Path(args.movement)]
 for path in paths:
     if not path.is_file():
         raise FileNotFoundError(path)
@@ -42,8 +50,19 @@ for idx,d in enumerate(data[:3]):
         if isinstance(r[nc],str) and len(r[nc].split())>=3 and not re.search(r'\d',r[nc]):
             sources.append(dict(name=r[nc].strip(),ipn=ident(r[ic]),source=pathlib.Path(d['file']).name,sheet=s['name'],row=rn,key=norm(r[nc])))
 movement=[next(s for s in data[3]['sheets'] if s['name']==name) for name in ['Список','Прибулі']]
-people=[dict(name=r[1],ipn=ident(r[2]),enroll=r[3],row=i) for i,r in enumerate(movement[0]['rows'],1) if isinstance(r[3],str) and r[3].startswith(args.month)]
-tp=[dict(name=r[2],arrival=r[7],departure=r[10],note=r[18],row=i,basis=r[13],depart_basis=r[15]) for i,r in enumerate(movement[1]['rows'][5:],6) if r[2]]
+
+def table_rows(sheet, name):
+    left, top, right, bottom = range_boundaries(sheet['tables'][name])
+    headers = [str(h or '').strip() for h in sheet['rows'][top - 1][left - 1:right]]
+    for number, row in enumerate(sheet['rows'][top:bottom], top + 1):
+        yield number, dict(zip(headers, row[left - 1:right]))
+
+people=[dict(name=r['ПІБ'],ipn=ident(r['ІПН']),enroll=r['Зарахування'],row=i)
+        for i,r in table_rows(movement[0],'Список')
+        if r['ПІБ'] and isinstance(r['Зарахування'],str) and r['Зарахування'].startswith(args.month)]
+tp=[dict(name=r['ПІБ'],arrival=r['Прибуття'],departure=r['Вибуття'],note=r['Додаткова інформація'],row=i,
+         basis=r['Прибуття.Підстава'],depart_basis=r['Вибуття.Підстава'])
+    for i,r in table_rows(movement[1],'ТП') if r['ПІБ']]
 for p in people:
     exact=[s for s in sources if s['key']==norm(p['name'])]
     byid=[s for s in sources if p['ipn'] and s['ipn']==p['ipn']]
@@ -63,7 +82,7 @@ for p in people:
         selected=prev[-1]
     p['selected']=selected
     p['final']=bool(p['matches'] and selected and selected['arrival'].startswith(args.month))
-result={'people':people,'source_counts':[sum(s['source']==pathlib.Path(d['file']).name for s in sources) for d in data[:3]]}
+result={'people':people,'source_names':names,'source_counts':[sum(s['source']==pathlib.Path(d['file']).name for s in sources) for d in data[:3]]}
 if args.full:
     print(json.dumps(result,ensure_ascii=False))
 else:

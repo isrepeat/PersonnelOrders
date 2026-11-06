@@ -24,14 +24,17 @@ const wb=Workbook.create();
 const stages=wb.worksheets.add('Этапы фильтрации');
 const audit=wb.worksheets.add('Сверка ФИО');
 const history=wb.worksheets.add('История ТП');
-const colors={background:'#262626',row:'#2D2D2D',alternate:'#383838',header:'#365D89',text:'#F2F2F2',pink:'#E9B8C0',pinkText:'#541C26',green:'#A6D65C'};
+const coffee=args.includes('--coffee');
+const colors=coffee
+ ? {background:'#26231A',row:'#2E2A21',alternate:'#383329',header:'#5D523E',text:'#F5F2EB',pink:'#E9B8C0',pinkText:'#541C26',green:'#FFB24B'}
+ : {background:'#262626',row:'#2D2D2D',alternate:'#383838',header:'#365D89',text:'#F2F2F2',pink:'#E9B8C0',pinkText:'#541C26',green:'#A6D65C'};
 const date=x=>x?new Date(x.endsWith('Z')?x:x+'Z'):null;
 const col=n=>{let s='';for(n++;n;n=Math.floor((n-1)/26))s=String.fromCharCode(65+(n-1)%26)+s;return s;};
 const end=people.length+9;
 function base(sheet,last,bottom,title){
  sheet.showGridLines=false;sheet.freezePanes.unfreeze();sheet.tabColor=colors.header;
  sheet.getRange(`A1:${last}${bottom}`).format={fill:colors.background,font:{name:'Arial',size:10,color:colors.text},rowHeight:25,verticalAlignment:'center'};
- sheet.getRange('A2').values=[[title]];sheet.getRange('A2').format.font={size:14,bold:true};
+ sheet.getRange('A2').values=[[title]];sheet.getRange('A2').format.font={size:14,bold:true,color:coffee?colors.green:colors.text};
 }
 function table(sheet,address,name){
  const t=sheet.tables.add(address,true,name);t.style='TableStyleLight1';t.showFilterButton=true;
@@ -42,9 +45,9 @@ function body(sheet,start,last,count){
 }
 const source=s=>`${s.source.startsWith('00000.')?'БРЕЗ':s.source.startsWith('0000.')?'Суд':'Рапорты'}!${s.row}`;
 base(audit,'R',end+20,'Сверка всех зачислений за '+month);
-audit.getRange('A3').values=[['Суд = 0000. СЗЧ по ухвалі суду 05_10_2026.xlsx / Лист1']];
-audit.getRange('A4').values=[['БРЕЗ = 00000. СЗЧ_через_БРЕЗ_новий_алгоритм_на 05.10.2026.xlsx / Лист1']];
-audit.getRange('A5').values=[['Рапорты = Поіменний список рапортів СЗЧ (1).xlsm / Аркуш1']];
+audit.getRange('A3').values=[[`Суд = ${data.source_names[0]} / Лист1`]];
+audit.getRange('A4').values=[[`БРЕЗ = ${data.source_names[1]} / Лист1`]];
+audit.getRange('A5').values=[[`Рапорты = ${data.source_names[2]} / Аркуш1`]];
 audit.getRange('A6').values=[['ФИО нормализуется. При отсутствии точного совпадения проверяется ИПН; ближайшее написание сохраняется для проверки.']];
 audit.getRange('A7').values=[['Разные фамилии или ИПН не объединяются автоматически. Сходство текста не является вероятностью совпадения.']];
 const details=people.map(p=>{
@@ -79,6 +82,7 @@ for(let g=0;g<4;g++){
   stages.getRange(`${a}10:${z}${last}`).values=rows.map(p=>[p.name,p.ipn,g<2?date(p.enroll):date(p.selected?.arrival)]);
   body(stages,a,z,rows.length);
   for(let i=0;i<rows.length;i++)if((g===1&&!rows[i].matches.length)||(g===2&&!rows[i].final))stages.getRange(`${a}${i+10}:${z}${i+10}`).format={fill:colors.pink,font:{color:colors.pinkText}};
+  if(coffee)for(let i=0;i<rows.length;i++)if(g===0||g===3||(g===1&&rows[i].matches.length)||(g===2&&rows[i].final))stages.getRange(`${a}${i+10}`).format.font.color=colors.green;
   stages.getRange(`${b}10:${b}${last}`).setNumberFormat('@');stages.getRange(`${z}10:${z}${last}`).setNumberFormat('dd.mm.yyyy');
  }
  table(stages,`${a}9:${z}${Math.max(10,last)}`,g===3?'FinalPeople':`Stage${g+1}`);
@@ -103,7 +107,11 @@ for(let i=0;i<events.length;i++){
 wb.recalculate();
 console.log((await wb.inspect({kind:'match',searchTerm:'#REF!|#DIV/0!|#VALUE!|#NAME\\?|#N/A|#NUM!',options:{useRegex:true,maxResults:10},summary:'Проверка формул'})).ndjson);
 await fs.mkdir(path.dirname(output),{recursive:true});
-const temporary=path.join(path.dirname(output),'.szch-preview.png');
-const preview=await wb.render({sheetName:stages.name,range:'I6:O17',scale:1,format:'png'});await fs.writeFile(temporary,new Uint8Array(await preview.arrayBuffer()));
+const temporary=option('--preview-dir',path.dirname(output));
+await fs.mkdir(temporary,{recursive:true});
+for(const [sheet,range,name] of [[stages,'A1:O16','stages'],[audit,'A1:J13','audit'],[history,'A1:F12','history']]){
+ const preview=await wb.render({sheetName:sheet.name,range,scale:1,format:'png'});
+ await fs.writeFile(path.join(temporary,`.szch-${name}.png`),new Uint8Array(await preview.arrayBuffer()));
+}
 try{await (await SpreadsheetFile.exportXlsx(wb)).save(output);}catch(error){if(error.code!=='EBUSY')throw error;output=output.replace(/\.xlsx$/i,`_${Date.now()}.xlsx`);await (await SpreadsheetFile.exportXlsx(wb)).save(output);console.log('Книга открыта; сохранено:',output);}
 console.log(JSON.stringify({month,counts:[people.length,found.length,final.length],sources:data.source_counts,output,preview:temporary}));

@@ -1,7 +1,9 @@
 param(
     [string]$MovementPath,
     [string]$Month = '2026-09',
-    [string]$OutputPath
+    [string]$OutputPath,
+    [string]$SourcesDir,
+    [switch]$Coffee
 )
 
 $ErrorActionPreference = 'Stop'
@@ -23,7 +25,10 @@ foreach ($requiredPath in @($nodePath, $env:SZCH_PYTHON, $env:SZCH_NODE_MODULES,
     }
 }
 
-$builderOutput = & $nodePath (Join-Path $PSScriptRoot 'build.mjs') --sources-dir $taskRoot --movement $MovementPath --month $Month --output $OutputPath
+if (-not $SourcesDir) { $SourcesDir = $taskRoot }
+$builderArgs = @('--sources-dir', $SourcesDir, '--movement', $MovementPath, '--month', $Month, '--output', $OutputPath)
+if ($Coffee) { $builderArgs += @('--coffee', '--preview-dir', (Join-Path $taskRoot 'Work')) }
+$builderOutput = & $nodePath (Join-Path $PSScriptRoot 'build.mjs') @builderArgs
 if ($LASTEXITCODE -ne 0) { throw "Создание книги завершилось с кодом $LASTEXITCODE" }
 $builderOutput | Write-Output
 $buildSummary = $builderOutput[-1] | ConvertFrom-Json
