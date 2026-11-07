@@ -3,10 +3,35 @@
 import unittest
 from datetime import date
 
-from food_history import audit_person, similar
+from food_history import absence_problems, audit_person, similar
 
 
 class HistoryTests(unittest.TestCase):
+    def test_own_first_dry_does_not_require_food_history(self):
+        group = self.group('dry', '2026-11-07', duration=3)
+        group['military'] = 'А7383'
+        result = audit_person(group, self.person, [])
+        self.assertFalse(result['conflicts'])
+        self.assertFalse(result['warnings'])
+        closed_food = self.event('food', '2026-01-01', '2026-02-01')
+        closed_food['military'] = 'А7383'
+        self.assertFalse(audit_person(group, self.person, [closed_food])['conflicts'])
+
+    def test_absence_uses_actual_return_and_person_ipn(self):
+        group = dict(kind='dry', military='А7383', start='2026-11-07', duration=3)
+        person = dict(self.person, ipn='123')
+        event = dict(name='ПОМИЛКА Іван Петрович', ipn='123', event='Відпустка',
+                     start=date(2026, 11, 1), end=None, ref='Відсутні!C17')
+        self.assertTrue(absence_problems(group, person, [event]))
+        event['end'] = date(2026, 11, 7)
+        self.assertFalse(absence_problems(group, person, [event]))
+        event['end'] = date(2026, 11, 8)
+        self.assertTrue(absence_problems(group, person, [event]))
+        event['ipn'] = '456'
+        self.assertFalse(absence_problems(group, person, [event]))
+        event.update(ipn='123', start=date(2026, 11, 10), end=None)
+        self.assertFalse(absence_problems(group, person, [event]))
+
     def setUp(self):
         self.person = dict(name='ТЕСТЕНКО Іван Петрович', source_name='ТЕСТЕНКО Іван Петрович', rank='солдат', source_rank='солдат')
 

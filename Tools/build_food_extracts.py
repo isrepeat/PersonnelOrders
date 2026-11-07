@@ -52,6 +52,8 @@ def build_extracts(folder, incoming_number=None):
     order_date = date.fromisoformat(run['order']['date'])
     outputs = []
     for group in run['groups']:
+        if not group['people']:
+            continue
         if incoming_number is not None and group['incoming_number'] != incoming_number:
             continue
         operation = {'dry': 'сухпай', 'removal': 'снять с продовольствия', 'enrollment': 'зачислить на продовольствие'}[group['kind']]

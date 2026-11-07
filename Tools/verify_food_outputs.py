@@ -25,7 +25,15 @@ def verify(folder, workbook):
     book = load_workbook(workbook)
     cached = load_workbook(workbook, data_only=True)
     reference = load_workbook(run['reference'])
-    assert book.sheetnames == ['Продовольче', 'Сухпрод']
+    assert book.sheetnames == ['Продовольче', 'Сухпрод'] + (['Проблеми'] if run['problems'] else [])
+    if run['problems']:
+        sheet = book['Проблеми']
+        assert sheet.tables['FoodProblems'].ref == f"B2:I{len(run['problems']) + 2}"
+        for row, item in enumerate(run['problems'], 3):
+            assert sheet.cell(row, 3).value == item['person']['name']
+            assert sheet.cell(row, 9).value == item['reason']
+            assert sheet.cell(row, 5).value.date().isoformat() == item['group']['start']
+            assert sheet.cell(row, 6).value == item['group']['duration']
     for name, kind, table_name, last_col in [('Продовольче', 'removal', 'FoodReports', 'P'), ('Сухпрод', 'dry', 'DryRations', 'O')]:
         sheet = book[name]
         expected = [(group, person) for group in run['groups'] if (group['kind'] == 'dry' if kind == 'dry' else group['kind'] != 'dry') for person in group['people']]
@@ -72,6 +80,8 @@ def verify(folder, workbook):
         assert any(rule.type == 'duplicateValues' for rule in rules)
     assert book['Сухпрод'].tables['DryRations'].tableColumns[5].calculatedColumnFormula is not None
     for group in run['groups']:
+        if not group['people']:
+            continue
         operation = {'dry': 'сухпай', 'removal': 'снять с продовольствия', 'enrollment': 'зачислить на продовольствие'}[group['kind']]
         belonging = '[НАШИ]' if group['military'] == 'А7383' else '[ЧУЖИЕ]'
         template = next(path for path in (ROOT / 'Documents/Templates/Extracts [food]').glob('*.docx') if operation in path.name and belonging in path.name)

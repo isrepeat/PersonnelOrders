@@ -9,6 +9,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from openpyxl import load_workbook
+from openpyxl.utils.cell import range_boundaries
 
 from food_person_genitive import person_accusative
 
@@ -117,6 +118,54 @@ def aliases_for(person):
     return aliases
 
 
+def read_absences(path):
+    """Читаем фактическое прибытие; плановая дата не закрывает отсутствие."""
+    book = load_workbook(path, data_only=True)
+    try:
+        matches = [(sheet, table) for sheet in book for table in sheet.tables.values() if table.name in ('ТВ', 'TB')]
+        if len(matches) != 1:
+            raise ValueError('Для проверки отсутствий нужна единственная таблица ТВ в РУХ')
+        sheet, table = matches[0]
+        left, top, right, bottom = range_boundaries(table.ref)
+        rows = sheet.iter_rows(min_row=top, max_row=bottom, min_col=left, max_col=right, values_only=True)
+        columns = {name: index for index, name in enumerate(next(rows)) if name}
+        if any(name not in columns for name in ('ПІБ', 'ІПН', 'Подія', 'Вибуття', 'Прибуття')):
+            raise ValueError('Неизвестные заголовки таблицы ТВ')
+        result = []
+        for number, row in enumerate(rows, top + 1):
+            if not row[columns['ПІБ']]:
+                continue
+            result.append(dict(name=str(row[columns['ПІБ']]), ipn=str(row[columns['ІПН']] or '').strip(),
+                               event=str(row[columns['Подія']] or ''), start=day(row[columns['Вибуття']]),
+                               end=day(row[columns['Прибуття']]), ref=f'{sheet.title}!C{number}'))
+        return result
+    finally:
+        book.close()
+
+
+def absence_problems(group, person, absences):
+    if group['military'] != 'А7383' or group['kind'] != 'dry':
+        return []
+    start = day(group['start'])
+    end = start + timedelta(days=group['duration'])
+    aliases = aliases_for(person)
+    reasons = []
+    for event in absences:
+        if person.get('ipn') and event['ipn']:
+            exact = str(person['ipn']) == event['ipn']
+            candidate = False
+        else:
+            exact = normal(event['name']) in aliases
+            candidate = not exact and similar(event['name'], aliases)
+        if not (exact or candidate) or not overlaps(start, end, event['start'] or date.min, event['end']):
+            continue
+        state = 'відкрите відбуття, фактичне прибуття не внесене' if event['end'] is None else f"фактичне прибуття {event['end']:%d.%m.%Y}"
+        begin = event['start'].strftime('%d.%m.%Y') if event['start'] else 'дата не вказана'
+        prefix = 'Можлива тотожність особи; ' if candidate else ''
+        reasons.append(f'{prefix}{event["ref"]}, {event["name"]}, {event["event"]}, вибуття {begin}; {state}. Період відсутності перетинає запитаний сухпай.')
+    return reasons
+
+
 def audit_person(group, person, events, other_groups=(), prior_reports=()):
     aliases = aliases_for(person)
     canonical = normal(person['name'])
@@ -181,7 +230,7 @@ def audit_person(group, person, events, other_groups=(), prior_reports=()):
         return f'{event["ref"]}, {period}'
 
     def inspect(rows, uncertain=False):
-        food = [e for e in rows if e['kind'] == 'food' and e['start']]
+        food = [e for e in rows if e['kind'] == 'food' and e['start']] if military != 'А7383' or group['kind'] != 'dry' else []
         dry = [e for e in rows if e['kind'] == 'dry' and e['start']]
         active = [e for e in food if e['start'] <= start and (e['end'] is None or start < e['end']) and not same_report(e)]
         prefix = 'Можливе протиріччя за близьким ПІБ: ' if uncertain else ''
@@ -233,7 +282,7 @@ def audit_person(group, person, events, other_groups=(), prior_reports=()):
                  not any(g['kind'] != group['kind'] and min(start, other_start) < day(g['start']) < max(start, other_start) for g in scheduled if g['kind'] in ('enrollment', 'removal'))) or
                 (group['kind'] == 'enrollment' and other['kind'] == 'dry' and other_start <= start < other_end)):
             conflicts.append(f'Суперечливі вказівки поточного пакета: {other["kind"]}, вх. №{other["incoming_number"]}.')
-    if not matched and not possible:
+    if not matched and not possible and not (military == 'А7383' and group['kind'] == 'dry'):
         warnings.append('Історії цього повного ПІБ і частини на листах Продовольче/Сухпрод не знайдено; це не доводить відсутності забезпечення.')
     for previous in prior_reports:
         if previous['military'] != military or not (normal(previous['name']) in aliases or similar(previous['name'], aliases)):

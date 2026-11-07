@@ -27,6 +27,8 @@ def build_sections(folder, output=None):
     target = Path(output) if output else Path(run['results']) / 'Extracts' / f'Template_{folder[5:7]}_{run["order"]["number"]}.docx'
     blocks = {}
     for group in run['groups']:
+        if not group['people']:
+            continue
         own = group['military'] == 'А7383'
         token = '{' + SLOTS[group['kind']] + ('_Ours' if own else '_Others') + '}'
         belonging = '[НАШИ]' if own else '[ЧУЖИЕ]'

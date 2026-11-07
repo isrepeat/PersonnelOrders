@@ -71,6 +71,25 @@ for (const [name, headers, values, dates] of [
   }
   sheet.freezePanes.unfreeze();
 }
+if (run.problems.length) {
+  const sheet = wb.worksheets.add('Проблеми');
+  const headers = ['Звання', 'ПІБ', 'Установа', 'Запитаний початок', 'Запитана тривалість', 'Джерело', 'ІПН', 'Зауваження'];
+  const values = run.problems.map(item => [item.person.rank, item.person.name, item.group.military, serial(item.group.start), item.group.duration, item.group.source_pages.join('; '), item.person.ipn || '', item.reason]);
+  const last = values.length + 2;
+  sheet.showGridLines = false;
+  sheet.getRange('A1:AN50').format = { fill: '#262626', font: { name: 'Times New Roman', size: 12, color: '#FFFFFF' } };
+  sheet.getRange('B2:I2').values = [headers];
+  sheet.getRange(`B3:I${last}`).values = values;
+  const table = sheet.tables.add(`B2:I${last}`, true, 'FoodProblems');
+  table.style = 'TableStyleDark1';
+  sheet.getRange(`B2:I${last}`).format = { wrapText: true, verticalAlignment: 'center', borders: { preset: 'all', style: 'thin', color: '#000000' }, rowHeight: 75 };
+  sheet.getRange('B2:I2').format = { fill: '#000000', font: { bold: true, color: '#FFFFFF' }, rowHeight: 42 };
+  [8.625, 21, 42, 14, 18, 18, 45, 17, 100].forEach((width, index) => sheet.getRange(`${String.fromCharCode(65 + index)}:${String.fromCharCode(65 + index)}`).format.columnWidth = width);
+  sheet.getRange(`C3:C${last}`).format = { fill: '#FFF2CC', font: { color: '#000000' } };
+  sheet.getRange(`E3:E${last}`).setNumberFormat('dd.mm.yyyy');
+  sheet.getRange(`H3:H${last}`).setNumberFormat('@');
+  sheet.freezePanes.unfreeze();
+}
 wb.recalculate();
 console.log((await wb.inspect({ kind: 'table', range: 'Продовольче!B2:K3', include: 'values,formulas', tableMaxRows: 2, tableMaxCols: 10, maxChars: 1000 })).ndjson);
 console.log((await wb.inspect({ kind: 'match', searchTerm: '#REF!|#DIV/0!|#VALUE!|#NAME\\?|#N/A|#NUM!', options: { useRegex: true, maxResults: 10 }, summary: 'Ошибки формул Food' })).ndjson);

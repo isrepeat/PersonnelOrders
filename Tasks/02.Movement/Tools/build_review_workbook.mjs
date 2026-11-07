@@ -27,6 +27,17 @@ const parse = (line) => {
 };
 const headers = parse(lines[0]);
 const records = payload?.records || lines.slice(1).map(parse).map((cells) => Object.fromEntries(headers.map((header, index) => [header, cells[index] ?? ""])));
+const leaveActions = new Map([
+  ["Щорічна відпустка", "Вибув у щорічну відпустку"],
+  ["Відпустка для лікування", "Вибув у відпустку для лікування"],
+  ["Відпустка за сімейними обставинами", "Вибув у відпустку за сімейними обставинами"],
+]);
+for (const record of records) {
+  const prefix = record["Дія"].startsWith("[Зміна статусу]") ? "[Зміна статусу] " : "";
+  if (record["Дія"].replace(/^\[Зміна статусу\]\s*/, "") === "Вибув у відпустку" && leaveActions.has(record["Подія"])) {
+    record["Дія"] = prefix + leaveActions.get(record["Подія"]);
+  }
+}
 const orderNumberText = String(payload?.orderNumber ?? records[0]?.["Наказ"]?.match(/№(\d+)/)?.[1] ?? "");
 const orderDateText = payload?.orderDate ?? records[0]?.["Наказ"]?.match(/\d{2}\.\d{2}\.\d{4}/)?.[0];
 if (!/^\d+$/.test(orderNumberText) || !/^\d{2}\.\d{2}\.\d{4}$/.test(orderDateText ?? "")) throw new Error("Укажите проверенные orderNumber и orderDate");
@@ -79,6 +90,8 @@ for (const name of order) {
   sheet.getRange("A2").values = [[`Джерело: наказ №${orderNumberText} від ${orderDateText}. ПІБ звірено з ШПО за ІПН; без ІПН приведено до називного відмінка.`]];
   sheet.getRange(`A4:${lastCol}4`).values = [outputHeaders];
   let values = recordsForSheet.map((record) => {
+    // Префикс перехода отображаем в таблице, классификацию выполняем по самому действию.
+    const action = record["Дія"].replace(/^\[Зміна статусу\]\s*/, "");
     const rank = record["Звання"];
     const date = record["Дата події"];
     const [day, month, year] = date.split(".").map(Number);
@@ -86,22 +99,22 @@ for (const name of order) {
     const orderDate = orderDay;
     const foodDate = record["Продовольча дата"] === "НЕ ЗМІНЮВАТИ" ? "" : record["Продовольча дата"] || (eventDate > orderDate ? date : nextDayText);
     if (name === "Прибули") {
-      const closure = record["Дія"].includes("Закрити ТП") || record["Дія"].startsWith("Вибув");
+      const closure = action.includes("Закрити ТП") || action.startsWith("Вибув");
       return closure
         ? [record["Дія"], rank, record["ПІБ"], record["Посада"] || "", record["Звідки"] || "", "", "", "", "", "", date, foodDate, orderNumberText, "", record["Супровідний документ"], record["Підстава"], record["Текст наказу"]]
         : [record["Дія"], rank, record["ПІБ"], record["Посада"] || "", record["Звідки"] || "", orderNumberText, foodDate, date, "", "", "", "", "", record["Підстава"], record["Супровідний документ"], "", record["Текст наказу"]];
     }
     if (name === "Список") {
-      if (record["Дія"].startsWith("Скасувати виключення")) {
+      if (action.startsWith("Скасувати виключення")) {
         return [record["Дія"], rank, record["ПІБ"], record["ІПН"], "", "", "ЛОЖЬ", "ЛОЖЬ", "", "", record["Підстава"], record["Супровідний документ"], record["Текст наказу"]];
       }
-      const joined = record["Дія"].startsWith("Зарахувати");
+      const joined = action.startsWith("Зарахувати");
       return [record["Дія"], rank, record["ПІБ"], record["ІПН"], joined ? date : "", joined ? "" : date, joined ? "ІСТИНА" : "ЛОЖЬ", joined ? "ІСТИНА" : "ЛОЖЬ", joined ? foodDate : "", joined ? "" : foodDate, record["Підстава"], record["Супровідний документ"], record["Текст наказу"]];
     }
-    const arrival = record["Дія"].startsWith("Прибув") || record["Дія"].startsWith("Поновити") || record["Дія"].includes("Закрити");
+    const arrival = action.startsWith("Прибув") || action.startsWith("Поновити") || action.includes("Закрити");
     // При уточнении типа существующего события сохраняем его первичный приказ.
     const orderNumber = record["Вибуття.Наказ"] ?? orderNumberText;
-    if (record["Дія"].split(" | ").includes("Повернення до іншої частини")) {
+    if (action.split(" | ").includes("Повернення до іншої частини")) {
       return [record["Дія"], rank, record["ПІБ"], record["ІПН"], orderNumber, record["Вибуття.Продовольче"], record["Вибуття"], "", "", "", record["Прибуття"], record["Прибуття.Продовольче"], orderNumber, record["Підстава"], record["Супровідний документ"], record["Підстава"], record["Текст наказу"]];
     }
     return [record["Дія"], rank, record["ПІБ"], record["ІПН"], ...(arrival ? ["", "", "", "", "", "", date, foodDate, orderNumber, "", record["Супровідний документ"], record["Підстава"], record["Текст наказу"]] : [orderNumber, foodDate, date, record["Термін"], record["Дорога"], record["Прибуття.План"] || "", "", "", "", record["Підстава"], record["Супровідний документ"], "", record["Текст наказу"]])];

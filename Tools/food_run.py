@@ -129,8 +129,34 @@ def load_run(folder):
         import winreg
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders') as key:
             history = Path(winreg.QueryValueEx(key, 'Desktop')[0]) / 'РУХ_last.xlsx'
-    from food_history import audit_run
-    return audit_run(run, history)
+    from food_history import audit_run, read_absences, absence_problems
+    run = audit_run(run, history)
+    absences = read_absences(history) if any(group['kind'] == 'dry' and group['military'] == 'А7383' for group in groups) else []
+    run['history_audit']['absence_records'] = len(absences)
+    run['problems'] = []
+    for group in run['groups']:
+        if group['kind'] != 'dry':
+            continue
+        accepted = []
+        for person in group['people']:
+            absence = absence_problems(group, person, absences)
+            if group['military'] == 'А7383' and not absence:
+                person['audit']['notes'] += ' Таблиця ТВ (Відсутні) перевірена: запитаний період вільний від відсутностей.'
+            overlap = [message for message in person['audit']['conflicts'] if 'Перетин сухпайка' in message]
+            if absence or overlap:
+                reason = 'ПРОТИРІЧЧЯ. ' + ' '.join(absence + overlap)
+                run['problems'].append(dict(group={key: value for key, value in group.items() if key != 'people'},
+                                            person=person, reason=reason))
+            elif group['military'] != 'А7383' and not person['audit']['history_rows']:
+                reason = 'Не підтверджено продовольче забезпечення за історією РУХ. Сухпай не оформлено; потрібна перевірка зарахування. '
+                run['problems'].append(dict(group={key: value for key, value in group.items() if key != 'people'},
+                                            person=person, reason=reason + person['audit']['notes']))
+            else:
+                accepted.append(person)
+        group['source_count'] = group['expected_count']
+        group['people'] = accepted
+        group['expected_count'] = len(accepted)
+    return run
 
 
 def next_workbook_path(folder):
