@@ -10,22 +10,22 @@ const output = args[args.indexOf('--output') + 1];
 if (!args.includes('--date') || !args.includes('--output')) throw new Error('Нужны --date YYYY.MM.DD и --output файл.xlsx');
 const tools = path.dirname(fileURLToPath(import.meta.url));
 const python = process.env.FOOD_PYTHON || 'C:/Users/isrepeat/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe';
-const run = JSON.parse(execFileSync(python, [path.join(tools, 'process_food_reports.py'), '--date', folder], { encoding: 'utf8' }));
+const run = JSON.parse(execFileSync(python, [path.join(tools, 'process_food_reports.py'), '--date', folder, '--output', output], { encoding: 'utf8' }));
 const wb = Workbook.create();
 const serial = text => (Date.parse(text + 'T00:00:00Z') - Date.UTC(1899, 11, 30)) / 86400000;
 const food = [], dry = [];
 for (const group of run.groups) {
   for (const person of group.people) {
     const audit = person.audit;
-    const extra = [group.source_pages.join('; '), person.match, group.reporter, person.ipn || '', (audit.conflicts.length ? 'ПРОТИРІЧЧЯ. ' : '') + audit.notes];
+    const extra = [person.added_version, group.source_pages.join('; '), person.match, group.reporter, person.ipn || '', (audit.conflicts.length ? 'ПРОТИРІЧЧЯ. ' : '') + audit.notes];
     if (group.kind === 'dry') dry.push([person.rank, person.name, group.military, serial(group.start), group.duration, null, group.basis, run.order.number, null, ...extra]);
     else if (group.kind === 'enrollment') food.push([person.rank, person.name, group.military, null, serial(group.start), run.order.number, null, null, group.basis, null, ...extra]);
     else food.push([person.rank, person.name, group.military, null, null, null, serial(group.start), run.order.number, group.basis, null, ...extra]);
   }
 }
 for (const [name, headers, values, dates] of [
-  ['Продовольче', ['Звання', 'ПІБ', 'Установа', 'Група', 'Зарахування', 'Зарахування.Наказ', 'Виключення', 'Виключення.Наказ', 'Підстава', 'Додаткова інформація', 'Джерело', 'Звірка ШПО', 'Рапорт', 'ІПН', 'Зауваження'], food, ['F', 'H']],
-  ['Сухпрод', ['Звання', 'ПІБ', 'ІПН/Установа', 'Початок', 'Тривалість', 'Припинення', 'Підстава', 'Наказ', 'Додаткова інформація', 'Джерело', 'Звірка ШПО', 'Рапорт', 'ІПН', 'Зауваження'], dry, ['E', 'G']]
+  ['Продовольче', ['Звання', 'ПІБ', 'Установа', 'Група', 'Зарахування', 'Зарахування.Наказ', 'Виключення', 'Виключення.Наказ', 'Підстава', 'Додаткова інформація', 'Додано у версії', 'Джерело', 'Звірка ШПО', 'Рапорт', 'ІПН', 'Зауваження'], food, ['F', 'H']],
+  ['Сухпрод', ['Звання', 'ПІБ', 'ІПН/Установа', 'Початок', 'Тривалість', 'Припинення', 'Підстава', 'Наказ', 'Додаткова інформація', 'Додано у версії', 'Джерело', 'Звірка ШПО', 'Рапорт', 'ІПН', 'Зауваження'], dry, ['E', 'G']]
 ]) {
   const sheet = wb.worksheets.add(name);
   sheet.showGridLines = false;
@@ -42,7 +42,8 @@ for (const [name, headers, values, dates] of [
   for (let row = 3; row <= last; row++) sheet.getRange(`B${row}:${end}${row}`).format.fill = row % 2 ? '#262626' : '#383838';
   const widths = name === 'Сухпрод' ? [8.625, 14.75, 40.375, 17.75, 13.375, 12.5, 16.25, 55.875, 8.5, 36.5] : [8.625, 21.25, 42, 13.25, 12.625, 13.375, 13, 13.75, 13.25, 58, 25.25];
   widths.forEach((width, index) => sheet.getRange(`${String.fromCharCode(65 + index)}:${String.fromCharCode(65 + index)}`).format.columnWidth = width);
-  sheet.getRange(name === 'Сухпрод' ? 'K:N' : 'L:O').format.columnWidth = 28;
+  sheet.getRange(name === 'Сухпрод' ? 'K:O' : 'L:P').format.columnWidth = 28;
+  sheet.getRange(name === 'Сухпрод' ? 'K:K' : 'L:L').format.columnWidth = 18;
   sheet.getRange(`${end}:${end}`).format.columnWidth = 100;
   if (values.length) {
     sheet.getRange(`D3:D${last}`).format = { font: { color: '#FF9966' }, horizontalAlignment: 'center' };
@@ -73,21 +74,21 @@ for (const [name, headers, values, dates] of [
 }
 if (run.problems.length) {
   const sheet = wb.worksheets.add('Проблеми');
-  const headers = ['Звання', 'ПІБ', 'Установа', 'Запитаний початок', 'Запитана тривалість', 'Джерело', 'ІПН', 'Зауваження'];
-  const values = run.problems.map(item => [item.person.rank, item.person.name, item.group.military, serial(item.group.start), item.group.duration, item.group.source_pages.join('; '), item.person.ipn || '', item.reason]);
+  const headers = ['Звання', 'ПІБ', 'Установа', 'Запитаний початок', 'Запитана тривалість', 'Додано у версії', 'Джерело', 'ІПН', 'Зауваження'];
+  const values = run.problems.map(item => [item.person.rank, item.person.name, item.group.military, serial(item.group.start), item.group.duration, item.person.added_version, item.group.source_pages.join('; '), item.person.ipn || '', item.reason]);
   const last = values.length + 2;
   sheet.showGridLines = false;
   sheet.getRange('A1:AN50').format = { fill: '#262626', font: { name: 'Times New Roman', size: 12, color: '#FFFFFF' } };
-  sheet.getRange('B2:I2').values = [headers];
-  sheet.getRange(`B3:I${last}`).values = values;
-  const table = sheet.tables.add(`B2:I${last}`, true, 'FoodProblems');
+  sheet.getRange('B2:J2').values = [headers];
+  sheet.getRange(`B3:J${last}`).values = values;
+  const table = sheet.tables.add(`B2:J${last}`, true, 'FoodProblems');
   table.style = 'TableStyleDark1';
-  sheet.getRange(`B2:I${last}`).format = { wrapText: true, verticalAlignment: 'center', borders: { preset: 'all', style: 'thin', color: '#000000' }, rowHeight: 75 };
-  sheet.getRange('B2:I2').format = { fill: '#000000', font: { bold: true, color: '#FFFFFF' }, rowHeight: 42 };
-  [8.625, 21, 42, 14, 18, 18, 45, 17, 100].forEach((width, index) => sheet.getRange(`${String.fromCharCode(65 + index)}:${String.fromCharCode(65 + index)}`).format.columnWidth = width);
+  sheet.getRange(`B2:J${last}`).format = { wrapText: true, verticalAlignment: 'center', borders: { preset: 'all', style: 'thin', color: '#000000' }, rowHeight: 75 };
+  sheet.getRange('B2:J2').format = { fill: '#000000', font: { bold: true, color: '#FFFFFF' }, rowHeight: 42 };
+  [8.625, 21, 42, 14, 18, 18, 18, 45, 17, 100].forEach((width, index) => sheet.getRange(`${String.fromCharCode(65 + index)}:${String.fromCharCode(65 + index)}`).format.columnWidth = width);
   sheet.getRange(`C3:C${last}`).format = { fill: '#FFF2CC', font: { color: '#000000' } };
   sheet.getRange(`E3:E${last}`).setNumberFormat('dd.mm.yyyy');
-  sheet.getRange(`H3:H${last}`).setNumberFormat('@');
+  sheet.getRange(`I3:I${last}`).setNumberFormat('@');
   sheet.freezePanes.unfreeze();
 }
 wb.recalculate();

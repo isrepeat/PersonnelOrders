@@ -59,7 +59,7 @@ const nominativeRank = (record) => {
   const sourceRank = [...rankMap.keys()].find((candidate) => new RegExp(`(?:^|\\.\\s*)${candidate}\\s`, "i").test(text));
   return sourceRank ? rankMap.get(sourceRank) : record["Звання"];
 };
-const supplemental = prepareSupplementary(payload ?? {}, records, orderNumberText);
+const supplemental = prepareSupplementary(payload ?? {}, records, orderNumberText, orderDateText);
 const workbook = Workbook.create();
 const palette = { "Список": "#1F4E78", "Відсутні": "#9E480E", "Прибули": "#548235" };
 const tableNames = { "Список": "RosterEvents", "Відсутні": "AbsenceEvents", "Прибули": "ArrivalEvents" };

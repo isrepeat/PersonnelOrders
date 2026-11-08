@@ -15,26 +15,28 @@ from pypdf import PdfReader
 from food_person_genitive import person_accusative
 from food_docx_language import ukrainian_part, ukrainian_tree
 from food_run import ROOT, load_run
+from food_versions import apply_versions
 from food_audit_format import COLORS, note_level
 
 NS = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
 
 
 def verify(folder, workbook):
-    run = load_run(folder)
+    run = apply_versions(load_run(folder), workbook)
     book = load_workbook(workbook)
     cached = load_workbook(workbook, data_only=True)
     reference = load_workbook(run['reference'])
     assert book.sheetnames == ['Продовольче', 'Сухпрод'] + (['Проблеми'] if run['problems'] else [])
     if run['problems']:
         sheet = book['Проблеми']
-        assert sheet.tables['FoodProblems'].ref == f"B2:I{len(run['problems']) + 2}"
+        assert sheet.tables['FoodProblems'].ref == f"B2:J{len(run['problems']) + 2}"
         for row, item in enumerate(run['problems'], 3):
             assert sheet.cell(row, 3).value == item['person']['name']
-            assert sheet.cell(row, 9).value == item['reason']
+            assert sheet.cell(row, 10).value == item['reason']
+            assert sheet.cell(row, 7).value == item['person']['added_version']
             assert sheet.cell(row, 5).value.date().isoformat() == item['group']['start']
             assert sheet.cell(row, 6).value == item['group']['duration']
-    for name, kind, table_name, last_col in [('Продовольче', 'removal', 'FoodReports', 'P'), ('Сухпрод', 'dry', 'DryRations', 'O')]:
+    for name, kind, table_name, last_col in [('Продовольче', 'removal', 'FoodReports', 'Q'), ('Сухпрод', 'dry', 'DryRations', 'P')]:
         sheet = book[name]
         expected = [(group, person) for group in run['groups'] if (group['kind'] == 'dry' if kind == 'dry' else group['kind'] != 'dry') for person in group['people']]
         assert sheet.tables[table_name].ref == f'B2:{last_col}{max(3, len(expected) + 2)}'
@@ -47,7 +49,7 @@ def verify(folder, workbook):
                 assert sheet.cell(row, 6).value == group['duration']
                 assert 'Початок' in sheet.cell(row, 7).value and 'Тривалість' in sheet.cell(row, 7).value
                 assert cached[name].cell(row, 7).value.date() == date.fromisoformat(group['start']) + timedelta(days=group['duration'])
-                basis_col, order_col, info_col, source_col, ipn_col = 8, 9, 10, 11, 14
+                basis_col, order_col, info_col, source_col, ipn_col = 8, 9, 10, 12, 15
             else:
                 if group['kind'] == 'enrollment':
                     assert sheet.cell(row, 5).value is None and all(sheet.cell(row, c).value is None for c in (8, 9))
@@ -57,11 +59,13 @@ def verify(folder, workbook):
                     assert all(sheet.cell(row, c).value is None for c in (5, 6, 7))
                     assert sheet.cell(row, 8).value.date().isoformat() == group['start']
                     order_col = 9
-                basis_col, info_col, source_col, ipn_col = 10, 11, 12, 15
+                basis_col, info_col, source_col, ipn_col = 10, 11, 13, 16
+                assert sheet.cell(2, 5).value == 'Група' and sheet.cell(row, 5).value is None
             assert sheet.cell(row, basis_col).value == group['basis']
             assert sheet.cell(row, order_col).value == run['order']['number']
             assert sheet.cell(row, info_col).value is None
             assert sheet.cell(row, source_col).value == '; '.join(group['source_pages'])
+            assert sheet.cell(row, source_col - 1).value == person['added_version']
             assert sheet.cell(row, ipn_col).value in (person.get('ipn'), '')
             note_col = ipn_col + 1
             assert sheet.cell(2, note_col).value == 'Зауваження'
