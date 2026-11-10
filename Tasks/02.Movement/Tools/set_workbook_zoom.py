@@ -92,6 +92,8 @@ def set_zoom(path):
                 data = ET.tostring(root, encoding='utf-8', xml_declaration=True)
             target.writestr(entry, data)
     temporary.replace(path)
+    from set_review_table_style import set_table_style
+    set_table_style(path)
 
 
 if __name__ == '__main__':

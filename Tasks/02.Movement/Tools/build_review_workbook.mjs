@@ -135,6 +135,20 @@ for (const name of order) {
     if (Object.hasOwn(record["Поля"] ?? {}, field)) return record["Поля"][field];
     return header === "Додаткова інформація" ? record[header] ?? "" : row[legacyHeaders.indexOf(header)] ?? "";
   }));
+  // При каждом открытии и закрытии ПЗ обязательно рассчитывается по правилу пользователя.
+  if (name === "Відсутні" || name === "Прибули") {
+    for (const row of values) {
+      for (const eventHeader of ["Вибуття", "Прибуття"]) {
+        const eventIndex = outputHeaders.indexOf(eventHeader);
+        const foodIndex = outputHeaders.indexOf(`${eventHeader}.ПЗ`);
+        const eventText = row[eventIndex];
+        if (!/^\d{2}\.\d{2}\.\d{4}$/.test(eventText ?? "")) continue;
+        const [day, month, year] = eventText.split(".").map(Number);
+        const eventDay = new Date(Date.UTC(year, month - 1, day));
+        row[foodIndex] = eventDay > orderDay ? eventText : nextDayText;
+      }
+    }
+  }
   // Даты остаются числовыми значениями Excel, а ИПН — текстовыми идентификаторами.
   const dateHeaders = new Set(["Зарахування", "Виключення", "Вибуття.ПЗ", "Вибуття", "Прибуття.План", "Прибуття", "Прибуття.ПЗ", "Вибуття.План"]);
   for (const row of values) {
@@ -169,11 +183,9 @@ for (const name of order) {
   sheet.getRange(`A4:${lastCol}4`).format.fill = "#5D5142";
   for (let index = 0; index < values.length; index++) sheet.getRangeByIndexes(index + 4, 0, 1, outputHeaders.length).format.fill = index % 2 ? "#38342C" : "#302D25";
   sheet.getRange("A1").format.rowHeight = 25;
-  if (values.length) {
-    const table = sheet.tables.add(`A4:${lastCol}${bottom}`, true, tableNames[name]);
-    table.style = "TableStyleDark1";
-    table.showFilterButton = true;
-  }
+  const table = sheet.tables.add(`A4:${lastCol}${bottom}`, true, tableNames[name]);
+  table.style = "TableStyleDark1";
+  table.showFilterButton = true;
   // Высоту рассчитываем по переносам, не изменяя согласованные ширины колонок.
   for (let index = 0; index < values.length; index += 1) {
     const lineCount = Math.max(...values[index].map((value, column) => {
