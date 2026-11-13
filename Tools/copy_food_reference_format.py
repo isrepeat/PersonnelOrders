@@ -75,17 +75,17 @@ for row in target.find('s:sheetData', ns):
         row.set('customHeight', '1')
     for cell in row:
         col = ''.join(c for c in cell.get('r') if c.isalpha())
-        if col not in list('BCDEFGHIJ'):
+        if col not in 'BCDFGHIJK':
             continue
-        number = ord(col) - 64
+        number = ord(col) - 64 - int(col >= 'F')
         original = sheet.cell(2 if row_number == 2 else 1380 + (row_number % 2), number)
         cell.set('s', str(style_offset + original.style_id))
-        if col == 'G' and row_number > 2:
+        if col == 'H' and row_number > 2:
             cell.find('s:f', ns).text = 'DryRations[[#This Row],[Початок]]+DryRations[[#This Row],[Тривалість]]'
 for col in target.find('s:cols', ns):
     lower, upper = int(col.get('min')), int(col.get('max'))
-    if lower == upper and 1 <= lower <= 10:
-        col.set('width', str(sheet.column_dimensions[chr(64 + lower)].width))
+    if lower == upper and 1 <= lower <= 11 and lower != 5:
+        col.set('width', str(sheet.column_dimensions[chr(64 + lower - int(lower > 5))].width))
 for rule in list(target.findall('s:conditionalFormatting', ns)):
     target.remove(rule)
 cf = ET.Element(tag('conditionalFormatting'), sqref=f'C3:C{last_row}') if last_row > 2 else None
@@ -135,7 +135,7 @@ for name in data:
                 if number < 2 or col == 'A':
                     continue
                 fill = '000000' if number == 2 else ('262626' if number % 2 else '383838')
-                text_color = 'FF9966' if number > 2 and col == 'D' else '8DB4E2' if number > 2 and name.endswith('sheet2.xml') and col == 'G' else 'FFFFFF'
+                text_color = 'FF9966' if number > 2 and col == 'D' else '8DB4E2' if number > 2 and name.endswith('sheet2.xml') and col == 'H' else 'FFFFFF'
                 cell.set('s', str(dark_style(int(cell.get('s', '0')), fill, text_color)))
         canvas_style = node.find('s:sheetData/s:row/s:c', ns).get('s')
         cols = node.find('s:cols', ns)

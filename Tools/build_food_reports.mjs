@@ -18,14 +18,14 @@ for (const group of run.groups) {
   for (const person of group.people) {
     const audit = person.audit;
     const extra = [person.added_version, group.source_pages.join('; '), person.match, group.reporter, person.ipn || '', (audit.conflicts.length ? 'ПРОТИРІЧЧЯ. ' : '') + audit.notes];
-    if (group.kind === 'dry') dry.push([person.rank, person.name, group.military, serial(group.start), group.duration, null, group.basis, run.order.number, null, ...extra]);
+    if (group.kind === 'dry') dry.push([person.rank, person.name, group.military, null, serial(group.start), group.duration, null, group.basis, run.order.number, null, ...extra]);
     else if (group.kind === 'enrollment') food.push([person.rank, person.name, group.military, null, serial(group.start), run.order.number, null, null, group.basis, null, ...extra]);
     else food.push([person.rank, person.name, group.military, null, null, null, serial(group.start), run.order.number, group.basis, null, ...extra]);
   }
 }
 for (const [name, headers, values, dates] of [
   ['Продовольче', ['Звання', 'ПІБ', 'Установа', 'Група', 'Зарахування', 'Зарахування.Наказ', 'Виключення', 'Виключення.Наказ', 'Підстава', 'Додаткова інформація', 'Додано у версії', 'Джерело', 'Звірка ШПО', 'Рапорт', 'ІПН', 'Зауваження'], food, ['F', 'H']],
-  ['Сухпрод', ['Звання', 'ПІБ', 'ІПН/Установа', 'Початок', 'Тривалість', 'Припинення', 'Підстава', 'Наказ', 'Додаткова інформація', 'Додано у версії', 'Джерело', 'Звірка ШПО', 'Рапорт', 'ІПН', 'Зауваження'], dry, ['E', 'G']]
+  ['Сухпрод', ['Звання', 'ПІБ', 'Установа', 'Група', 'Початок', 'Тривалість', 'Припинення', 'Підстава', 'Наказ', 'Додаткова інформація', 'Додано у версії', 'Джерело', 'Звірка ШПО', 'Рапорт', 'ІПН', 'Зауваження'], dry, ['F', 'H']]
 ]) {
   const sheet = wb.worksheets.add(name);
   sheet.showGridLines = false;
@@ -40,15 +40,15 @@ for (const [name, headers, values, dates] of [
   sheet.getRange(`B2:${end}${last}`).format = { wrapText: false, verticalAlignment: 'center', rowHeight: 22.5, font: { color: '#FFFFFF', name: 'Times New Roman', size: 12 }, borders: { preset: 'all', style: 'thin', color: '#000000' } };
   sheet.getRange(`B2:${end}2`).format = { fill: '#000000', font: { color: '#FFFFFF', bold: true }, horizontalAlignment: 'center', wrapText: true, rowHeight: 31.5 };
   for (let row = 3; row <= last; row++) sheet.getRange(`B${row}:${end}${row}`).format.fill = row % 2 ? '#262626' : '#383838';
-  const widths = name === 'Сухпрод' ? [8.625, 14.75, 40.375, 17.75, 13.375, 12.5, 16.25, 55.875, 8.5, 36.5] : [8.625, 21.25, 42, 13.25, 12.625, 13.375, 13, 13.75, 13.25, 58, 25.25];
+  const widths = name === 'Сухпрод' ? [8.625, 14.75, 40.375, 17.75, 12.625, 13.375, 12.5, 16.25, 55.875, 8.5, 36.5] : [8.625, 21.25, 42, 13.25, 12.625, 13.375, 13, 13.75, 13.25, 58, 25.25];
   widths.forEach((width, index) => sheet.getRange(`${String.fromCharCode(65 + index)}:${String.fromCharCode(65 + index)}`).format.columnWidth = width);
-  sheet.getRange(name === 'Сухпрод' ? 'K:O' : 'L:P').format.columnWidth = 28;
-  sheet.getRange(name === 'Сухпрод' ? 'K:K' : 'L:L').format.columnWidth = 18;
+  sheet.getRange('L:P').format.columnWidth = 28;
+  sheet.getRange('L:L').format.columnWidth = 18;
   sheet.getRange(`${end}:${end}`).format.columnWidth = 100;
   if (values.length) {
     sheet.getRange(`D3:D${last}`).format = { font: { color: '#FF9966' }, horizontalAlignment: 'center' };
     sheet.getRange(`E3:I${last}`).format.horizontalAlignment = 'center';
-    sheet.getRange(name === 'Сухпрод' ? `H3:H${last}` : `J3:J${last}`).format.horizontalAlignment = 'left';
+    sheet.getRange(name === 'Сухпрод' ? `I3:I${last}` : `J3:J${last}`).format.horizontalAlignment = 'left';
     if (name === 'Продовольче') {
       sheet.getRange(`J3:J${last}`).format.wrapText = true;
       for (let row = 3; row <= last; row++) sheet.getRange(`B${row}:O${row}`).format.rowHeight = Math.max(45, Math.ceil(String(values[row - 3][8]).length / 60) * 15 + 8);
@@ -56,8 +56,8 @@ for (const [name, headers, values, dates] of [
     for (let row = 3; row <= last; row++) if (values[row - 3][0].length > 13) sheet.getRange(`B${row}`).format = { wrapText: true, rowHeight: name === 'Продовольче' ? Math.max(45, Math.ceil(String(values[row - 3][8]).length / 60) * 15 + 8) : 31.5 };
     for (const col of dates) sheet.getRange(`${col}3:${col}${last}`).setNumberFormat('dd.mm.yyyy');
     if (name === 'Сухпрод') {
-      sheet.getRange(`G3:G${last}`).format.font.color = '#8DB4E2';
-      for (let row = 3; row <= last; row++) sheet.getRange(`G${row}`).formulas = [['=[@Початок]+[@Тривалість]']];
+      sheet.getRange(`H3:H${last}`).format.font.color = '#8DB4E2';
+      for (let row = 3; row <= last; row++) sheet.getRange(`H${row}`).formulas = [['=[@Початок]+[@Тривалість]']];
     }
     sheet.getRange(`${String.fromCharCode(end.charCodeAt(0) - 1)}3:${String.fromCharCode(end.charCodeAt(0) - 1)}${last}`).setNumberFormat('@');
     sheet.getRange(`${end}3:${end}${last}`).format.wrapText = true;

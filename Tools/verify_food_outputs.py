@@ -36,7 +36,7 @@ def verify(folder, workbook):
             assert sheet.cell(row, 7).value == item['person']['added_version']
             assert sheet.cell(row, 5).value.date().isoformat() == item['group']['start']
             assert sheet.cell(row, 6).value == item['group']['duration']
-    for name, kind, table_name, last_col in [('Продовольче', 'removal', 'FoodReports', 'Q'), ('Сухпрод', 'dry', 'DryRations', 'P')]:
+    for name, kind, table_name, last_col in [('Продовольче', 'removal', 'FoodReports', 'Q'), ('Сухпрод', 'dry', 'DryRations', 'Q')]:
         sheet = book[name]
         expected = [(group, person) for group in run['groups'] if (group['kind'] == 'dry' if kind == 'dry' else group['kind'] != 'dry') for person in group['people']]
         assert sheet.tables[table_name].ref == f'B2:{last_col}{max(3, len(expected) + 2)}'
@@ -45,11 +45,12 @@ def verify(folder, workbook):
         for row, (group, person) in enumerate(expected, 3):
             assert [sheet.cell(row, c).value for c in (2, 3, 4)] == [person['rank'], person['name'], group['military']]
             if kind == 'dry':
-                assert sheet.cell(row, 5).value.date().isoformat() == group['start']
-                assert sheet.cell(row, 6).value == group['duration']
-                assert 'Початок' in sheet.cell(row, 7).value and 'Тривалість' in sheet.cell(row, 7).value
-                assert cached[name].cell(row, 7).value.date() == date.fromisoformat(group['start']) + timedelta(days=group['duration'])
-                basis_col, order_col, info_col, source_col, ipn_col = 8, 9, 10, 12, 15
+                assert sheet.cell(2, 5).value == 'Група' and sheet.cell(row, 5).value is None
+                assert sheet.cell(row, 6).value.date().isoformat() == group['start']
+                assert sheet.cell(row, 7).value == group['duration']
+                assert 'Початок' in sheet.cell(row, 8).value and 'Тривалість' in sheet.cell(row, 8).value
+                assert cached[name].cell(row, 8).value.date() == date.fromisoformat(group['start']) + timedelta(days=group['duration'])
+                basis_col, order_col, info_col, source_col, ipn_col = 9, 10, 11, 13, 16
             else:
                 if group['kind'] == 'enrollment':
                     assert sheet.cell(row, 5).value is None and all(sheet.cell(row, c).value is None for c in (8, 9))
@@ -77,12 +78,12 @@ def verify(folder, workbook):
             assert sheet.cell(row, note_col).alignment.wrap_text
         for row in sheet:
             assert all(not (isinstance(cell.value, str) and cell.value.startswith(('#REF!', '#DIV/0!', '#VALUE!', '#NAME?', '#N/A', '#NUM!'))) for cell in row)
-    for col in 'ABCDEFGHIJ':
-        assert book['Сухпрод'].column_dimensions[col].width == reference['Сухпрод'].column_dimensions[col].width
+    for col, original in zip('ABCDFGHIJK', 'ABCDEFGHIJ'):
+        assert book['Сухпрод'].column_dimensions[col].width == reference['Сухпрод'].column_dimensions[original].width
     rules = [rule for group in book['Сухпрод'].conditional_formatting._cf_rules.values() for rule in group]
     if any(group['kind'] == 'dry' for group in run['groups']):
         assert any(rule.type == 'duplicateValues' for rule in rules)
-    assert book['Сухпрод'].tables['DryRations'].tableColumns[5].calculatedColumnFormula is not None
+    assert book['Сухпрод'].tables['DryRations'].tableColumns[6].calculatedColumnFormula is not None
     for group in run['groups']:
         if not group['people']:
             continue
